@@ -693,6 +693,16 @@ function autoSave(){
   _saveTimer = setTimeout(saveState, 500);
 }
 
+// 定期保存（10秒ごと）- 確実に保存するためのバックアップ手段
+setInterval(saveState, 10000);
+
+// ページを閉じる・離れる直前にも保存
+window.addEventListener('beforeunload', saveState);
+window.addEventListener('pagehide', saveState);  // iOS Safari対応
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='hidden') saveState();
+});
+
 const S = loadState();
 
 function iso(d){return`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;}
@@ -930,6 +940,7 @@ function swapCells(from, to){
     if(dataFrom) S.tt[getTTKey(to)]   = dataFrom;
     else         delete S.tt[getTTKey(to)];
   }
+  autoSave();
   renderWeek();
 }
 
@@ -999,6 +1010,7 @@ function deleteEntry(){
   if(editIsTT) delete S.tt[editKey];
   else S.overrides[`${_ds}-${_dk}-${_pp}`]=null;
   closeCM();
+  autoSave();
   if(view==='week')renderWeek();else renderMonth();
 }
 
@@ -1175,6 +1187,7 @@ function setSchedType(t,btn){
   document.querySelectorAll('.type-btn').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
 }
 function saveSchedItem(){
+  // autoSave は末尾で呼ぶ
   if(!S.schedules) S.schedules={};
   const ds=document.getElementById('sched-modal').dataset.ds||iso(new Date());
   if(!S.schedules[ds]) S.schedules[ds]=[];
@@ -1190,7 +1203,6 @@ function saveSchedItem(){
   if(_schedEditIdx!==null) S.schedules[ds][_schedEditIdx]=item;
   else S.schedules[ds].push(item);
   closeSchedModal();
-  autoSave();
   renderWeekSchedGrid(_lastDates||[]);
 }
 function deleteSchedItem(){
@@ -1626,8 +1638,8 @@ function renderSubjects(){
   });
 }
 function cycleC(i){S.subjects[i].ci=(S.subjects[i].ci+1)%COLS.length;renderSubjects();renderTT();}
-function addSubj(){S.subjects.push({name:'新教科',classes:'',ci:S.subjects.length%COLS.length});renderSubjects();}
-function delSubj(i){if(!confirm(`「${S.subjects[i].name}」を削除しますか？`))return;S.subjects.splice(i,1);renderSubjects();renderTT();}
+function addSubj(){S.subjects.push({name:'新教科',classes:'',ci:S.subjects.length%COLS.length});renderSubjects();autoSave();}
+function delSubj(i){if(!confirm(`「${S.subjects[i].name}」を削除しますか？`))return;S.subjects.splice(i,1);renderSubjects();renderTT();autoSave();}
 // connectDrive は loadDriveCSV に置き換え
 document.getElementById('cls-modal').onclick=e=>{if(e.target===document.getElementById('cls-modal'))closeCM();};
 document.getElementById('draw-modal').onclick=e=>{if(e.target===document.getElementById('draw-modal'))closeDM();};
@@ -2224,7 +2236,7 @@ function renderPlanList(){
 
 function deletePlanLesson(idx){
   S.lessonPlan.splice(idx,1);
-  renderPlanList(); renderWeek();
+  renderPlanList(); renderWeek(); autoSave();
 }
 
 </script>
