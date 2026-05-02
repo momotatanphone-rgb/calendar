@@ -1915,11 +1915,11 @@ async function gcalSyncNow(){
   _gcalSyncing=true;
   gcalUpdateSyncBadge('syncing');
   try{
-    const base=getMon(new Date());
-    base.setDate(base.getDate()+wOff*7);
-    const endD=new Date(base);endD.setDate(base.getDate()+6);
+    // 前月〜2ヶ月後まで取得（週をまたいで常に最新を反映）
+    const rangeStart=new Date(); rangeStart.setMonth(rangeStart.getMonth()-1); rangeStart.setDate(1); rangeStart.setHours(0,0,0,0);
+    const rangeEnd=new Date(); rangeEnd.setMonth(rangeEnd.getMonth()+2); rangeEnd.setHours(23,59,59,999);
     const res=await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${base.toISOString()}&timeMax=${endD.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=100`,
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${rangeStart.toISOString()}&timeMax=${rangeEnd.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=500`,
       {headers:{Authorization:`Bearer ${_gcalToken}`}}
     );
     if(res.status===401){_gcalToken=null;gcalUpdateBtn(false);gcalStopAutoSync();return;}
