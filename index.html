@@ -467,7 +467,8 @@ canvas{display:block}
       <button class="backup-btn load" onclick="document.getElementById('backup-file-input').click()">📂 読み込む</button>
       <input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="backupLoad(event)"/>
     </div>
-    <div style="font-size:11px;color:var(--txt3);margin-bottom:6px">「保存する」でJSONファイルをダウンロード。「読み込む」で復元できます。</div>
+    <div style="font-size:11px;color:var(--txt3);margin-bottom:6px">データはブラウザに自動保存されます。「保存する」でJSONファイルとしてバックアップできます。</div>
+    <div id="localstorage-status" style="font-size:11px;color:var(--teal-m);margin-bottom:6px"></div>
     <div id="backup-history" class="backup-history" style="display:none"></div>
   </div>
 
@@ -632,7 +633,8 @@ let editKey=null,editIsTT=false,_ds='',_dk='',_pp=0;
 let drawKey='',dCtx=null,drawing=false,pSize=2,pColor=PCOLS[0],eraser=false;
 let lx=0,ly=0;
 
-const S={
+// デフォルトデータ
+const S_DEFAULT = {
   subjects:[
     {name:'数学',classes:'1年A組',ci:0},
     {name:'理科',classes:'2年B組',ci:2},
@@ -659,10 +661,39 @@ const S={
   driveConnected:false,
   driveFileName:'',
   lessonLog:{},
-  lessonPlan:[],      // [{id, content}]
-  lessonStart:{},     // {cls: {startDs, startIdx}} 起点（日付+インデックス）
-  testEvents:[],      // [{id, name, date, cls}] テスト・試験日程
+  lessonPlan:[],
+  lessonStart:{},
+  testEvents:[],
 };
+
+// localStorageから読み込み、なければデフォルト値を使用
+function loadState(){
+  try{
+    const saved = localStorage.getItem('jugyo_kanri_data');
+    if(saved){
+      const parsed = JSON.parse(saved);
+      // デフォルトにない新しいキーも保持しつつマージ
+      return Object.assign({}, S_DEFAULT, parsed);
+    }
+  }catch(e){ console.warn('State load error:', e); }
+  return Object.assign({}, S_DEFAULT);
+}
+
+// localStorageに保存
+function saveState(){
+  try{
+    localStorage.setItem('jugyo_kanri_data', JSON.stringify(S));
+  }catch(e){ console.warn('State save error:', e); }
+}
+
+// 自動保存（デバウンス付き）
+let _saveTimer = null;
+function autoSave(){
+  if(_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(saveState, 500);
+}
+
+const S = loadState();
 
 function iso(d){return`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;}
 function p2(n){return String(n).padStart(2,'0');}
@@ -945,6 +976,7 @@ function closeCM(){document.getElementById('cls-modal').classList.remove('on');}
 function saveCM(){
   const subj=document.getElementById('cm-subj').value;
   const cls=document.getElementById('cm-cls').value;
+  // ※ autoSaveは末尾で呼ぶ
   const val=subj?{subj,cls,room:document.getElementById('cm-room').value,memo:document.getElementById('cm-memo').value}:null;
   if(editIsTT){if(val)S.tt[editKey]=val;else delete S.tt[editKey];}
   else{S.overrides[`${_ds}-${_dk}-${_pp}`]=val;}
@@ -960,6 +992,7 @@ function saveCM(){
   }
 
   closeCM();
+  autoSave();
   if(view==='week')renderWeek();else renderMonth();
 }
 function deleteEntry(){
@@ -1157,6 +1190,7 @@ function saveSchedItem(){
   if(_schedEditIdx!==null) S.schedules[ds][_schedEditIdx]=item;
   else S.schedules[ds].push(item);
   closeSchedModal();
+  autoSave();
   renderWeekSchedGrid(_lastDates||[]);
 }
 function deleteSchedItem(){
@@ -1535,7 +1569,18 @@ function deleteDocFromViewer(){
 }
 
 // ── 設定 ──
-function renderSettings(){renderTT();renderPeriods();renderSubjects();recalcLessonLog();renderPlanList();renderCountdowns();renderBackupHistory();}
+function renderSettings(){renderTT();renderPeriods();renderSubjects();recalcLessonLog();renderPlanList();renderCountdowns();renderBackupHistory();
+  // localStorage状態表示
+  try{
+    const saved = localStorage.getItem('jugyo_kanri_data');
+    const el = document.getElementById('localstorage-status');
+    if(el && saved){
+      const size = (new Blob([saved]).size/1024).toFixed(1);
+      const d = new Date(); 
+      el.textContent = `✓ ブラウザに自動保存済み（${size}KB）`;
+    }
+  }catch(e){}
+}
 function renderTT(){
   const tbl=document.getElementById('tt-table');tbl.innerHTML='';
   const thead=tbl.createTHead().insertRow();
