@@ -1915,11 +1915,11 @@ async function gcalSyncNow(){
   _gcalSyncing=true;
   gcalUpdateSyncBadge('syncing');
   try{
-    // 前月〜2ヶ月後まで取得（週をまたいで常に最新を反映）
-    const rangeStart=new Date(); rangeStart.setMonth(rangeStart.getMonth()-1); rangeStart.setDate(1); rangeStart.setHours(0,0,0,0);
-    const rangeEnd=new Date(); rangeEnd.setMonth(rangeEnd.getMonth()+2); rangeEnd.setHours(23,59,59,999);
+    // 今年の1月1日〜来年の12月31日まで取得（1年間）
+    const rangeStart=new Date(); rangeStart.setMonth(0); rangeStart.setDate(1); rangeStart.setHours(0,0,0,0);
+    const rangeEnd=new Date(); rangeEnd.setFullYear(rangeEnd.getFullYear()+1); rangeEnd.setMonth(11); rangeEnd.setDate(31); rangeEnd.setHours(23,59,59,999);
     const res=await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${rangeStart.toISOString()}&timeMax=${rangeEnd.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=500`,
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${rangeStart.toISOString()}&timeMax=${rangeEnd.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=2500`,
       {headers:{Authorization:`Bearer ${_gcalToken}`}}
     );
     if(res.status===401){_gcalToken=null;gcalUpdateBtn(false);gcalStopAutoSync();return;}
@@ -1935,9 +1935,18 @@ async function gcalSyncNow(){
       const dte=new Date(end2);
       const endStr=isAllDay?'':`${p2(dte.getHours())}:${p2(dte.getMinutes())}`;
       if(!S.schedules[ds])S.schedules[ds]=[];
-      const ex=S.schedules[ds].find(e=>e.gcalId===ev.id);
-      if(ex){ex.title=ev.summary||'(無題)';ex.start=startStr;ex.end=endStr;}
-      else S.schedules[ds].push({type:'event',title:ev.summary||'(無題)',start:startStr,end:endStr,note:ev.location||'',gcalId:ev.id});
+      // 重複チェック: gcalId または「同じ日・同じタイトル・同じ開始時刻」は追加しない
+      const isDup = S.schedules[ds].some(e=>
+        e.gcalId===ev.id ||
+        (e.title===(ev.summary||'(無題)') && e.start===startStr)
+      );
+      if(isDup){
+        // タイトル・時刻が変わっていたらgcalIdで更新
+        const ex=S.schedules[ds].find(e=>e.gcalId===ev.id);
+        if(ex){ex.title=ev.summary||'(無題)';ex.start=startStr;ex.end=endStr;}
+      } else {
+        S.schedules[ds].push({type:'event',title:ev.summary||'(無題)',start:startStr,end:endStr,note:ev.location||'',gcalId:ev.id});
+      }
     });
     _gcalSyncing=false;
     gcalUpdateSyncBadge('ok');
