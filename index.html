@@ -335,6 +335,7 @@ canvas{display:block}
   </div>
   <div style="padding:10px 12px;border-top:0.5px solid var(--border);display:flex;gap:8px">
     <button onclick="gcalImportWeek()" style="flex:1;font-size:12px;padding:6px;border-radius:var(--r);background:var(--blue-l);color:var(--blue);border:0.5px solid var(--blue);cursor:pointer">↓ 今週を取込</button>
+    <button onclick="gcalSyncReminders()" style="flex:1;font-size:12px;padding:6px;border-radius:var(--r);background:var(--purple-l,#EEEDFE);color:#534AB7;border:0.5px solid #534AB7;cursor:pointer">🔔 リマインダー取込</button>
     <button onclick="gcalExportAll()" style="flex:1;font-size:12px;padding:6px;border-radius:var(--r);background:var(--teal-l);color:var(--teal-m);border:0.5px solid var(--teal);cursor:pointer">↑ 全予定を書出</button>
   </div>
 </div>
@@ -1656,6 +1657,109 @@ document.getElementById('sched-modal').onclick=e=>{if(e.target===document.getEle
 document.getElementById('doc-src-modal').onclick=e=>{if(e.target===document.getElementById('doc-src-modal'))closeDocSrcModal();};
 document.getElementById('doc-viewer').onclick=e=>{if(e.target===document.getElementById('doc-viewer'))closeDocViewer();};
 
+// ── バックアップ ──
+function backupSave(){
+  const data=JSON.stringify(S,null,2);
+  const blob=new Blob([data],{type:'application/json'});
+  const a=document.createElement('a');
+  const now=new Date();
+  const fname=`jugyo_backup_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.json`;
+  a.href=URL.createObjectURL(blob);a.download=fname;a.click();URL.revokeObjectURL(a.href);
+  if(!S._backupHistory)S._backupHistory=[];
+  S._backupHistory.unshift({name:fname,date:now.toLocaleString('ja-JP')});
+  if(S._backupHistory.length>5)S._backupHistory.pop();
+  renderBackupHistory();
+}
+function backupLoad(evt){
+  const file=evt.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const loaded=JSON.parse(e.target.result);
+      if(!confirm('現在のデータをすべて上書きして読み込みますか？'))return;
+      Object.keys(loaded).forEach(k=>{S[k]=loaded[k];});
+      renderWeek();renderSettings();saveState();
+      alert('バックアップを読み込みました！');
+    }catch(err){alert('読み込みエラー: '+err.message);}
+  };
+  reader.readAsText(file);evt.target.value='';
+}
+function renderBackupHistory(){
+  const el=document.getElementById('backup-history');if(!el)return;
+  if(!S._backupHistory||S._backupHistory.length===0){el.style.display='none';return;}
+  el.style.display='block';
+  el.innerHTML=S._backupHistory.map(h=>`<div class="backup-row-item"><span class="bk-name">💾 ${h.name}</span><span class="bk-date">${h.date}</span></div>`).join('');
+}
+
+// ── テストカウントダウン ──
+function addCountdown(){
+  const name=document.getElementById('cd-name').value.trim();
+  const date=document.getElementById('cd-date').value;
+  if(!name||!date){alert('テスト名と日付を入力してください');return;}
+  if(!S.testEvents)S.testEvents=[];
+  S.testEvents.push({id:Date.now(),name,date});
+  S.testEvents.sort((a,b)=>a.date.localeCompare(b.date));
+  document.getElementById('cd-name').value='';
+  document.getElementById('cd-date').value='';
+  autoSave();renderCountdowns();renderCdBadges();
+}
+function deleteCountdown(id){
+  S.testEvents=(S.testEvents||[]).filter(e=>String(e.id)!==String(id));
+  autoSave();renderCountdowns();renderCdBadges();
+}
+function renderCountdowns(){
+  const list=document.getElementById('countdown-list');if(!list)return;
+  if(!S.testEvents||S.testEvents.length===0){
+    list.innerHTML='<div style="font-size:12px;color:var(--txt3);padding:4px 0">テスト・行事がありません</div>';return;
+  }
+  const today=new Date();today.setHours(0,0,0,0);
+  list.innerHTML='';
+  S.testEvents.forEach(ev=>{
+    const evDate=new Date(ev.date);evDate.setHours(0,0,0,0);
+    const days=Math.ceil((evDate-today)/(1000*60*60*24));
+    const passed=days<0;
+    let remainLessons=0;
+    if(!passed){
+      for(let d=0;d<days;d++){
+        const dt=new Date(today);dt.setDate(today.getDate()+d);
+        const dow=dt.getDay();if(dow===0||dow===6)continue;
+        const di=dow-1;const maxP=di===0?5:6;
+        for(let p=1;p<=maxP;p++){if(S.tt[`${DK[di]}-${p}`])remainLessons++;}
+      }
+    }
+    const urgency=passed?'passed':days<=7?'urgent':days<=14?'soon':'ok';
+    const item=document.createElement('div');
+    item.className=`countdown-item ${urgency==='passed'?'':urgency}`;
+    item.style.cssText=urgency==='passed'?'opacity:.5':'';
+    const daysColor=urgency==='urgent'?'var(--coral)':urgency==='soon'?'var(--amber)':'var(--teal-m)';
+    const daysText=passed?`${Math.abs(days)}日前`:days===0?'今日！':`${days}日`;
+    item.innerHTML=`
+      <div class="cd-days" style="color:${daysColor}">${daysText}${!passed&&days>0?'<span class="cd-unit">後</span>':''}</div>
+      <div class="cd-info">
+        <div class="cd-name">${ev.name}</div>
+        <div class="cd-date">${ev.date.replace(/-/g,'/')}（${['日','月','火','水','木','金','土'][new Date(ev.date).getDay()]}）</div>
+        ${!passed&&remainLessons>0?`<div class="cd-lessons" style="color:${daysColor}">残り授業 約${remainLessons}コマ</div>`:''}
+      </div>
+      <button class="cd-del" onclick="deleteCountdown('${ev.id}')">✕</button>`;
+    list.appendChild(item);
+  });
+}
+function renderCdBadges(){
+  const el=document.getElementById('cd-badges');if(!el)return;
+  if(!S.testEvents||S.testEvents.length===0){el.innerHTML='';return;}
+  const today=new Date();today.setHours(0,0,0,0);
+  el.innerHTML=S.testEvents
+    .filter(ev=>{const d=new Date(ev.date);d.setHours(0,0,0,0);return d>=today;})
+    .slice(0,4)
+    .map(ev=>{
+      const d=new Date(ev.date);d.setHours(0,0,0,0);
+      const days=Math.ceil((d-today)/(1000*60*60*24));
+      const color=days<=7?'var(--coral)':days<=14?'var(--amber)':'var(--teal-m)';
+      const bg=days<=7?'var(--coral-l)':days<=14?'var(--amber-l)':'var(--teal-l)';
+      return `<div style="font-size:11px;padding:3px 8px;border-radius:99px;background:${bg};color:${color};border:0.5px solid ${color};white-space:nowrap">📝 ${ev.name} あと${days}日</div>`;
+    }).join('');
+}
+
 // ── タッチスワイプで週移動 ──
 (function(){
   const el=document.getElementById('view-week');
@@ -1743,7 +1847,7 @@ renderWeek();
 
 // ── Google Calendar 連携 ──
 const GCAL_CLIENT_ID = '520565701155-hvu77dq023ok22deg5i5ed0hn75ko08m.apps.googleusercontent.com';
-const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file';
+const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/tasks.readonly';
 let _gcalToken = null;
 let _gcalTokenClient = null;
 
@@ -1951,6 +2055,88 @@ async function gcalExportWeek(){
 window.addEventListener('load', ()=>{
   setTimeout(gcalInit, 800);
 });
+
+
+// ── Googleリマインダー（Tasks API）連携 ──
+async function gcalSyncReminders(){
+  if(!_gcalToken){ gcalToggleAuth(); return; }
+
+  try{
+    // タスクリスト一覧を取得
+    const listsRes = await fetch(
+      'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=20',
+      {headers:{Authorization:`Bearer ${_gcalToken}`}}
+    );
+    if(listsRes.status===401){_gcalToken=null;gcalUpdateBtn(false);return;}
+    if(listsRes.status===403){
+      alert('Tasks APIへのアクセスが拒否されました。\nGoogle Cloud ConsoleでTasks APIが有効になっているか確認してください。');
+      return;
+    }
+    if(!listsRes.ok) throw new Error('Lists API error: '+listsRes.status);
+    const listsData = await listsRes.json();
+    const lists = listsData.items||[];
+
+    if(lists.length===0){
+      alert('Googleリマインダー・タスクが見つかりませんでした');
+      return;
+    }
+
+    let added=0, skipped=0;
+    if(!S.schedules) S.schedules={};
+
+    // 全リストのタスクを取得
+    for(const list of lists){
+      const tasksRes = await fetch(
+        `https://tasks.googleapis.com/tasks/v1/lists/${list.id}/tasks?showCompleted=false&showHidden=false&maxResults=100`,
+        {headers:{Authorization:`Bearer ${_gcalToken}`}}
+      );
+      if(!tasksRes.ok) continue;
+      const tasksData = await tasksRes.json();
+      const tasks = tasksData.items||[];
+
+      tasks.forEach(task=>{
+        if(!task.title) return;
+
+        // 期限日があればその日に、なければ今日に追加
+        let ds;
+        if(task.due){
+          // due は RFC3339 形式（例: 2025-05-10T00:00:00.000Z）
+          ds = iso(new Date(task.due));
+        } else {
+          ds = iso(new Date());
+        }
+
+        if(!S.schedules[ds]) S.schedules[ds]=[];
+
+        // 重複チェック（同じタイトル+日付）
+        if(S.schedules[ds].some(e=>e.title===task.title && e.taskId===task.id)){
+          skipped++; return;
+        }
+
+        S.schedules[ds].push({
+          type:'deadline',
+          title:`🔔 ${task.title}`,
+          start:'',
+          end:'',
+          note: task.notes||'',
+          taskId: task.id,
+        });
+        added++;
+      });
+    }
+
+    autoSave();
+    renderWeekSchedGrid(_lastDates||[]);
+    renderMonth();
+    gcalPanel(false);
+
+    alert(`${added}件のリマインダーを取り込みました${skipped?`（${skipped}件は重複スキップ）`:''}`);
+
+  }catch(e){
+    console.error('Tasks sync error:', e);
+    alert('リマインダー取得エラー: '+e.message);
+  }
+}
 
 // ── リアルタイム同期 ──
 let _gcalSyncTimer=null, _gcalAutoSync=false;
