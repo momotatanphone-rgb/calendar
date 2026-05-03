@@ -250,6 +250,10 @@ canvas{display:block}
 .plan-add-row td{padding:6px}
 .plan-del-btn{width:20px;height:20px;border-radius:50%;border:none;background:none;cursor:pointer;font-size:12px;color:var(--txt3);opacity:.4}
 .plan-del-btn:hover{opacity:1;color:var(--coral)}
+.plan-drag-row{cursor:grab;transition:background .1s}
+.plan-drag-row:active{cursor:grabbing}
+.plan-drag-row.dragging-row{opacity:.4;background:var(--teal-l)}
+.plan-drag-row.drag-over-row{border-top:2px solid var(--teal)}
 /* 授業コマのユニット表示 */
 .chip-unit{font-size:9px;color:var(--txt3);margin-top:1px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 進度バッジ */
@@ -331,7 +335,7 @@ canvas{display:block}
   </div>
   <div style="padding:10px 12px;border-top:0.5px solid var(--border);display:flex;gap:8px">
     <button onclick="gcalImportWeek()" style="flex:1;font-size:12px;padding:6px;border-radius:var(--r);background:var(--blue-l);color:var(--blue);border:0.5px solid var(--blue);cursor:pointer">↓ 今週を取込</button>
-    <button onclick="gcalExportWeek()" style="flex:1;font-size:12px;padding:6px;border-radius:var(--r);background:var(--teal-l);color:var(--teal-m);border:0.5px solid var(--teal);cursor:pointer">↑ 今週を書出</button>
+    <button onclick="gcalExportAll()" style="flex:1;font-size:12px;padding:6px;border-radius:var(--r);background:var(--teal-l);color:var(--teal-m);border:0.5px solid var(--teal);cursor:pointer">↑ 全予定を書出</button>
   </div>
 </div>
 
@@ -463,11 +467,16 @@ canvas{display:block}
   <div class="sec">
     <div class="sec-ttl">💾 データのバックアップ</div>
     <div class="backup-row">
-      <button class="backup-btn save" onclick="backupSave()">💾 保存する</button>
-      <button class="backup-btn load" onclick="document.getElementById('backup-file-input').click()">📂 読み込む</button>
+      <button class="backup-btn save" onclick="backupSave()">💾 端末に保存</button>
+      <button class="backup-btn load" onclick="document.getElementById('backup-file-input').click()">📂 ファイルから読込</button>
       <input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="backupLoad(event)"/>
     </div>
-    <div style="font-size:11px;color:var(--txt3);margin-bottom:6px">データはブラウザに自動保存されます。「保存する」でJSONファイルとしてバックアップできます。</div>
+    <div class="backup-row" style="margin-top:4px">
+      <button class="backup-btn save" id="drive-save-btn" onclick="driveBackupSave()" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue)">☁️ Driveに保存</button>
+      <button class="backup-btn load" id="drive-load-btn" onclick="driveBackupLoad()">☁️ Driveから読込</button>
+    </div>
+    <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">データはブラウザに自動保存されます。Driveに保存すると他の端末からも使えます。</div>
+    <div id="drive-backup-status" style="font-size:11px;color:var(--teal-m);margin-bottom:6px"></div>
     <div id="localstorage-status" style="font-size:11px;color:var(--teal-m);margin-bottom:6px"></div>
     <div id="backup-history" class="backup-history" style="display:none"></div>
   </div>
@@ -1734,7 +1743,7 @@ renderWeek();
 
 // ── Google Calendar 連携 ──
 const GCAL_CLIENT_ID = '520565701155-hvu77dq023ok22deg5i5ed0hn75ko08m.apps.googleusercontent.com';
-const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar';
+const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file';
 let _gcalToken = null;
 let _gcalTokenClient = null;
 
@@ -2051,6 +2060,7 @@ document.addEventListener('visibilitychange',()=>{
 });
 
 // ── 授業計画（1時間ごとの内容＋クラス別進度） ──
+let _planDragIdx=null;
 // lessonPlan: [{id, content, progress:{cls: true/false}}]
 
 function addPlanUnit(){
@@ -2190,10 +2200,35 @@ function renderPlanList(){
 
     S.lessonPlan.forEach((u,idx)=>{
       const tr = tbody.insertRow();
+      tr.className='plan-drag-row';
+      tr.draggable=true;
+      tr.dataset.idx=idx;
+      tr.addEventListener('dragstart',e=>{
+        _planDragIdx=idx;
+        e.dataTransfer.effectAllowed='move';
+        tr.classList.add('dragging-row');
+      });
+      tr.addEventListener('dragend',()=>tr.classList.remove('dragging-row'));
+      tr.addEventListener('dragover',e=>{e.preventDefault();tr.classList.add('drag-over-row');});
+      tr.addEventListener('dragleave',()=>tr.classList.remove('drag-over-row'));
+      tr.addEventListener('drop',e=>{
+        e.preventDefault();tr.classList.remove('drag-over-row');
+        if(_planDragIdx===null||_planDragIdx===idx)return;
+        const moved=S.lessonPlan.splice(_planDragIdx,1)[0];
+        S.lessonPlan.splice(idx,0,moved);
+        _planDragIdx=null;
+        renderPlanList();renderWeek();autoSave();
+      });
 
-      // 削除ボタン
+      // 削除・上下ボタン
       const tdDel = tr.insertCell(); tdDel.className='plan-num-td';
-      tdDel.innerHTML=`<button class="plan-del-btn" onclick="deletePlanLesson(${idx})">✕</button>`;
+      tdDel.style.cssText='white-space:nowrap;min-width:72px';
+      tdDel.innerHTML=`
+        <span style="cursor:grab;font-size:14px;color:var(--txt3);margin-right:4px;vertical-align:middle">⠿</span>
+        <button class="plan-del-btn" title="上へ" onclick="movePlanLesson(${idx},-1)" ${idx===0?'disabled style="opacity:.2"':''} style="font-size:12px;margin-right:1px">▲</button>
+        <button class="plan-del-btn" title="下へ" onclick="movePlanLesson(${idx},1)" ${idx===S.lessonPlan.length-1?'disabled style="opacity:.2"':''} style="font-size:12px;margin-right:2px">▼</button>
+        <button class="plan-del-btn" onclick="deletePlanLesson(${idx})" style="color:var(--coral)">✕</button>
+      `;
 
       // 第○時
       const tdNum = tr.insertCell(); tdNum.className='plan-num-td';
@@ -2238,6 +2273,141 @@ function deletePlanLesson(idx){
   S.lessonPlan.splice(idx,1);
   renderPlanList(); renderWeek(); autoSave();
 }
+
+function movePlanLesson(idx, dir){
+  const newIdx = idx + dir;
+  if(newIdx < 0 || newIdx >= S.lessonPlan.length) return;
+  // 入れ替え
+  const tmp = S.lessonPlan[idx];
+  S.lessonPlan[idx] = S.lessonPlan[newIdx];
+  S.lessonPlan[newIdx] = tmp;
+  renderPlanList(); renderWeek(); autoSave();
+}
+
+
+// ── Googleドライブ データ同期 ──
+const DRIVE_FILE_NAME = 'jugyo_kanri_backup.json';
+let _driveFileId = null; // 一度見つけたらキャッシュ
+
+function driveStatusMsg(msg, color='var(--teal-m)'){
+  const el = document.getElementById('drive-backup-status');
+  if(el){ el.textContent=msg; el.style.color=color; }
+}
+
+// ドライブ内のファイルを検索
+async function driveFindFile(){
+  if(_driveFileId) return _driveFileId;
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=name='${DRIVE_FILE_NAME}'+and+trashed=false&fields=files(id,name,modifiedTime)&spaces=drive`,
+    {headers:{Authorization:`Bearer ${_gcalToken}`}}
+  );
+  const data = await res.json();
+  if(data.files && data.files.length>0){
+    _driveFileId = data.files[0].id;
+    return _driveFileId;
+  }
+  return null;
+}
+
+// Driveに保存
+async function driveBackupSave(){
+  if(!_gcalToken){ gcalToggleAuth(); return; }
+  const btn = document.getElementById('drive-save-btn');
+  if(btn) btn.textContent='☁️ 保存中...';
+  driveStatusMsg('Driveに保存中...');
+
+  try{
+    const jsonData = JSON.stringify(S);
+    const blob = new Blob([jsonData], {type:'application/json'});
+
+    const fileId = await driveFindFile();
+
+    let res;
+    if(fileId){
+      // 既存ファイルを更新
+      res = await fetch(
+        `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+        { method:'PATCH',
+          headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
+          body: jsonData }
+      );
+    } else {
+      // 新規作成（メタデータ + コンテンツをマルチパートで送信）
+      const boundary = 'backup_boundary';
+      const meta = JSON.stringify({name: DRIVE_FILE_NAME, mimeType:'application/json'});
+      const body = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${jsonData}\r\n--${boundary}--`;
+      res = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        { method:'POST',
+          headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':`multipart/related; boundary=${boundary}`},
+          body }
+      );
+      const created = await res.json();
+      _driveFileId = created.id;
+    }
+
+    if(res.ok){
+      const now = new Date().toLocaleString('ja-JP');
+      driveStatusMsg(`☁️ Driveに保存済み（${now}）`);
+      if(btn) btn.textContent='☁️ Driveに保存';
+      // localStorageにもfileIdを保存
+      try{ localStorage.setItem('jugyo_drive_file_id', _driveFileId); }catch(e){}
+    } else {
+      throw new Error('保存失敗 HTTP '+res.status);
+    }
+  }catch(e){
+    console.error(e);
+    driveStatusMsg('保存エラー: '+e.message, 'var(--coral)');
+    if(btn) btn.textContent='☁️ Driveに保存';
+  }
+}
+
+// Driveから読み込み
+async function driveBackupLoad(){
+  if(!_gcalToken){ gcalToggleAuth(); return; }
+  const btn = document.getElementById('drive-load-btn');
+  if(btn) btn.textContent='☁️ 読込中...';
+  driveStatusMsg('Driveから読み込み中...');
+
+  try{
+    // まずfileIdを取得
+    const fileId = await driveFindFile();
+    if(!fileId){
+      driveStatusMsg('Driveにバックアップが見つかりません', 'var(--amber)');
+      if(btn) btn.textContent='☁️ Driveから読込';
+      return;
+    }
+
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      {headers:{Authorization:`Bearer ${_gcalToken}`}}
+    );
+    if(!res.ok) throw new Error('読込失敗 HTTP '+res.status);
+
+    const loaded = await res.json();
+    if(!confirm('Driveのデータで現在のデータを上書きしますか？')) return;
+
+    Object.keys(loaded).forEach(k=>{ S[k]=loaded[k]; });
+    saveState();
+    renderWeek();
+    renderSettings();
+
+    const now = new Date().toLocaleString('ja-JP');
+    driveStatusMsg(`☁️ Drive から読み込み完了（${now}）`);
+    if(btn) btn.textContent='☁️ Driveから読込';
+
+  }catch(e){
+    console.error(e);
+    driveStatusMsg('読込エラー: '+e.message, 'var(--coral)');
+    if(btn) btn.textContent='☁️ Driveから読込';
+  }
+}
+
+// ページ読み込み時にfileIdをlocalStorageから復元
+try{
+  const saved = localStorage.getItem('jugyo_drive_file_id');
+  if(saved) _driveFileId = saved;
+}catch(e){}
 
 </script>
 </body>
