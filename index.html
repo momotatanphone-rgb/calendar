@@ -27,10 +27,10 @@
 }}
 body{font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans',Meiryo,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh}
 .hdr{background:var(--bg3);border-bottom:0.5px solid var(--border);padding:0 16px;position:sticky;top:0;z-index:50}
-.hdr-top{display:flex;align-items:center;gap:10px;padding:12px 0 0}
+.hdr-top{display:flex;align-items:center;gap:10px;padding:6px 0 0}
 .hdr-top h1{font-size:15px;font-weight:500;flex:1}
 .today-badge{font-size:11px;background:var(--teal-l);color:var(--teal-m);padding:3px 8px;border-radius:99px;cursor:pointer;border:none}
-.nav{display:flex;gap:2px;padding-top:6px}
+.nav{display:flex;gap:2px;padding-top:6px;align-items:center}
 .nb{padding:8px 14px;font-size:13px;font-weight:500;border:none;background:none;cursor:pointer;color:var(--txt2);border-bottom:2px solid transparent;margin-bottom:-0.5px}
 .nb.on{color:var(--teal-m);border-bottom-color:var(--teal)}
 .nb:hover:not(.on){color:var(--txt)}
@@ -147,6 +147,11 @@ canvas{display:block}
 .sched-chip:hover .sc-del{opacity:.6}
 .sched-chip .sc-del:hover{opacity:1;color:var(--coral)}
 .sched-chip .sc-doc{font-size:9px;color:var(--amber);margin-top:1px}
+.sched-chip.type-reminder{border-left-color:#534AB7;background:var(--purple-l,#EEEDFE)}
+.sched-chip.done-reminder{opacity:.5;text-decoration:line-through}
+.sched-chip.done-reminder .sc-title{color:var(--txt3)}
+.sc-check{font-size:10px;cursor:pointer;background:none;border:none;padding:0;line-height:1.4;flex-shrink:0;vertical-align:middle;margin-right:3px;opacity:.8}
+.sc-check:hover{opacity:1}
 .sched-doc-strip{display:flex;gap:3px;flex-wrap:wrap;padding:3px 4px 4px;border-top:0.5px solid var(--border);background:var(--bg2)}
 .sched-doc-th{width:40px;height:52px;border-radius:3px;overflow:hidden;border:0.5px solid var(--border2);cursor:pointer;position:relative;flex-shrink:0}
 .sched-doc-th img{width:100%;height:100%;object-fit:cover;display:block}
@@ -194,6 +199,7 @@ canvas{display:block}
 .type-btn[data-t=meeting].on{background:#534AB7}
 .type-btn[data-t=deadline].on{background:var(--coral)}
 .type-btn[data-t=other].on{background:var(--teal)}
+.type-btn[data-t=reminder].on{background:#534AB7}
 
 /* スワイプアニメーション */
 #view-week{overflow:hidden;position:relative}
@@ -310,17 +316,15 @@ canvas{display:block}
 </head>
 <body>
 <div class="hdr">
-  <div class="hdr-top">
-    <h1>授業管理</h1>
-    <button class="today-badge" onclick="goToday()">今日</button>
-    <button id="gcal-btn" onclick="gcalToggleAuth()"
-      style="font-size:11px;padding:3px 10px;border-radius:99px;border:0.5px solid var(--border2);background:none;cursor:pointer;color:var(--txt2);display:flex;align-items:center;gap:4px">
-      <span>📅</span><span id="gcal-btn-label">Googleカレンダー</span>
-    </button>
-  </div>
   <div class="nav">
     <button class="nb on" onclick="showPg('schedule',this)">📅 時間割</button>
     <button class="nb" onclick="showPg('settings',this)">⚙️ 設定</button>
+    <div style="flex:1"></div>
+    <button class="today-badge" onclick="goToday()" style="margin:0 4px 2px">今日</button>
+    <button id="gcal-btn" onclick="gcalToggleAuth()"
+      style="font-size:11px;padding:3px 8px;border-radius:99px;border:0.5px solid var(--border2);background:none;cursor:pointer;color:var(--txt2);display:flex;align-items:center;gap:3px;margin-bottom:2px">
+      <span>📅</span><span id="gcal-btn-label">カレンダー</span>
+    </button>
   </div>
 </div>
 
@@ -335,7 +339,6 @@ canvas{display:block}
   </div>
   <div style="padding:10px 12px;border-top:0.5px solid var(--border);display:flex;gap:8px">
     <button onclick="gcalImportWeek()" style="flex:1;font-size:12px;padding:6px;border-radius:var(--r);background:var(--blue-l);color:var(--blue);border:0.5px solid var(--blue);cursor:pointer">↓ 今週を取込</button>
-    <button onclick="gcalSyncReminders()" style="flex:1;font-size:12px;padding:6px;border-radius:var(--r);background:var(--purple-l,#EEEDFE);color:#534AB7;border:0.5px solid #534AB7;cursor:pointer">🔔 リマインダー取込</button>
     <button onclick="gcalExportAll()" style="flex:1;font-size:12px;padding:6px;border-radius:var(--r);background:var(--teal-l);color:var(--teal-m);border:0.5px solid var(--teal);cursor:pointer">↑ 全予定を書出</button>
   </div>
 </div>
@@ -566,6 +569,7 @@ canvas{display:block}
       <button class="type-btn" data-t="meeting" onclick="setSchedType('meeting',this)">会議</button>
       <button class="type-btn" data-t="deadline" onclick="setSchedType('deadline',this)">締切</button>
       <button class="type-btn" data-t="other" onclick="setSchedType('other',this)">その他</button>
+      <button class="type-btn" data-t="reminder" onclick="setSchedType('reminder',this)">🔔 リマインダー</button>
     </div>
     <div style="font-size:12px;color:var(--txt2);margin-bottom:4px;margin-top:12px">タイトル</div>
     <input type="text" id="sm-title-input" placeholder="例: 学年会議" style="width:100%;font-size:13px;padding:7px 9px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none"/>
@@ -758,17 +762,9 @@ function renderWeek(){
   for(let i=0;i<5;i++){const d=new Date(base);d.setDate(base.getDate()+i);dates.push(d);}
   _lastDates=dates;
 
-  // ── 曜日ヘッダー（別グリッド） ──
+  // ── 曜日ヘッダー非表示 ──
   const hdr=document.getElementById('wgrid-header');
   hdr.innerHTML='';
-  hdr.appendChild(document.createElement('div'));
-  dates.forEach((d,i)=>{
-    const isT=d.toDateString()===today.toDateString();
-    const h=document.createElement('div');
-    h.className='wgh'+(isT?' tc':'');
-    h.textContent=`${DJ[i]} ${fmt(d)}`;
-    hdr.appendChild(h);
-  });
 
   // ── 今日の予定バー ──
   renderWeekSchedGrid(_lastDates||[]);
@@ -1082,6 +1078,7 @@ const TYPE_INFO={
   meeting:{label:'会議',color:'#534AB7'},
   deadline:{label:'締切',color:'var(--coral)'},
   other:{label:'その他',color:'var(--teal)'},
+  reminder:{label:'🔔 リマインダー',color:'#534AB7'},
 };
 let _schedEditIdx=null,_schedType='event',_schedDocs=[];
 
@@ -1130,13 +1127,27 @@ function renderWeekSchedGrid(dates){
         chip.className=`sched-chip type-${item.type||'other'}`;
         const timeStr=item.start?(item.end?`${item.start}〜${item.end}`:item.start):'';
         const docStr=docs.length>0?`<span class="sc-doc" onclick="event.stopPropagation();toggleDocStripEl(this.closest('.sched-chip').nextElementSibling)">📄 ${docs.length}件</span>`:'';
-        chip.innerHTML=`
-          ${timeStr?`<span class="sc-time">${timeStr}</span>`:''}
-          <span class="sc-title">${item.title||''}</span>
-          ${docStr}
-          <button class="sc-del" onclick="event.stopPropagation();deleteSchedItemDirect('${ds}',${realIdx})">✕</button>
-        `;
-        chip.onclick=()=>openSchedModal(ds,realIdx);
+        const isReminder = item.type==='reminder';
+        const isDone = item.done||false;
+        if(isReminder && isDone) chip.classList.add('done-reminder');
+        // リマインダーは横並び（☑️ 時刻 タイトル）
+        if(isReminder){
+          chip.style.flexDirection='row';
+          chip.style.alignItems='center';
+          chip.style.gap='2px';
+          chip.style.flexWrap='nowrap';
+        }
+        const checkBtn = isReminder
+          ? `<button class="sc-check" onclick="event.stopPropagation();toggleReminderDone('${ds}',${realIdx})" title="${isDone?'未完了に戻す':'完了にする'}">${isDone?'☑️':'🔲'}</button>`
+          : '';
+        const titleStyle = isDone ? 'text-decoration:line-through;color:var(--txt3);flex:1;font-size:10px;' : 'flex:1;font-size:10px;';
+        chip.innerHTML = isReminder
+          ? `${checkBtn}<span style="${titleStyle}overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${timeStr?`<span style="color:var(--txt3);font-size:9px">${timeStr} </span>`:''}${item.title||''}</span><button class="sc-del" onclick="event.stopPropagation();deleteSchedItemDirect('${ds}',${realIdx})">✕</button>`
+          : `${timeStr?`<span class="sc-time">${timeStr}</span>`:''}
+             <span class="sc-title">${item.title||''}</span>
+             ${docStr}
+             <button class="sc-del" onclick="event.stopPropagation();deleteSchedItemDirect('${ds}',${realIdx})">✕</button>`;
+        chip.onclick=()=>{ if(!isReminder) openSchedModal(ds,realIdx); };
         chipWrap.appendChild(chip);
 
         // 書類サムネイルストリップ
@@ -2130,11 +2141,87 @@ async function gcalSyncReminders(){
     renderMonth();
     gcalPanel(false);
 
-    alert(`${added}件のリマインダーを取り込みました${skipped?`（${skipped}件は重複スキップ）`:''}`);
+    // サイレント同期（自動実行のためアラートなし）
+    if(added>0) console.log(`リマインダー ${added}件取込`);
 
   }catch(e){
     console.error('Tasks sync error:', e);
     alert('リマインダー取得エラー: '+e.message);
+  }
+}
+
+
+// アプリのリマインダーをGoogleカレンダーにイベントとして登録
+async function gcalCreateReminder(ds, item){
+  if(!_gcalToken) return;
+  try{
+    const isAllDay = !item.start;
+    const startDt = isAllDay
+      ? {date: ds}
+      : {dateTime: new Date(`${ds}T${item.start}:00`).toISOString(), timeZone:'Asia/Tokyo'};
+    const endTime = item.end||item.start;
+    const endDt = isAllDay
+      ? {date: (() => { const d=new Date(ds); d.setDate(d.getDate()+1); return iso(d); })()}
+      : {dateTime: new Date(`${ds}T${endTime}:00`).toISOString(), timeZone:'Asia/Tokyo'};
+
+    const body = {
+      summary: item.title,
+      description: item.note||'',
+      start: startDt,
+      end: endDt,
+      reminders:{useDefault:false, overrides:[{method:'popup', minutes:30}]},
+    };
+
+    const res = await fetch(
+      'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+      {method:'POST',
+       headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
+       body:JSON.stringify(body)}
+    );
+    const ev = await res.json();
+    if(ev.id){
+      // gcalId をアイテムに記録
+      const idx = S.schedules[ds].findIndex(e=>e.title===item.title&&e.start===item.start&&!e.gcalId);
+      if(idx>=0) S.schedules[ds][idx].gcalId = ev.id;
+      autoSave();
+    }
+  }catch(e){ console.error('Reminder create error:', e); }
+}
+
+
+// リマインダーの完了チェック
+function toggleReminderDone(ds, idx){
+  if(!S.schedules||!S.schedules[ds]||!S.schedules[ds][idx]) return;
+  const item = S.schedules[ds][idx];
+  item.done = !item.done;
+
+  // Googleカレンダーのタスクも完了にする（taskIdがあれば）
+  if(item.done && item.taskId && _gcalToken){
+    gcalCompleteTask(item.taskId).catch(e=>console.error(e));
+  }
+
+  autoSave();
+  renderWeekSchedGrid(_lastDates||[]);
+  renderMonth();
+}
+
+// GoogleタスクをAPIで完了にする
+async function gcalCompleteTask(taskId){
+  // タスクリストを検索してタスクを完了状態に更新
+  const listsRes = await fetch(
+    'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=20',
+    {headers:{Authorization:`Bearer ${_gcalToken}`}}
+  );
+  const listsData = await listsRes.json();
+  for(const list of (listsData.items||[])){
+    try{
+      await fetch(
+        `https://tasks.googleapis.com/tasks/v1/lists/${list.id}/tasks/${taskId}`,
+        {method:'PATCH',
+         headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
+         body:JSON.stringify({status:'completed'})}
+      );
+    }catch(e){}
   }
 }
 
@@ -2151,7 +2238,7 @@ function gcalScheduleTokenRefresh(){
 function gcalStartAutoSync(){
   _gcalAutoSync=true;
   gcalSyncNow();
-  _gcalSyncTimer=setInterval(()=>{ if(_gcalToken) gcalSyncNow(); }, 5*60*1000);
+  _gcalSyncTimer=setInterval(()=>{ if(_gcalToken){ gcalSyncNow(); gcalSyncReminders(); } }, 5*60*1000);
   gcalUpdateSyncBadge(true);
   gcalScheduleTokenRefresh();
 }
@@ -2242,7 +2329,7 @@ function gcalSyncIfActive(){
 
 // タブ復帰時に即時同期
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible'&&_gcalAutoSync&&_gcalToken)gcalSyncNow();
+  if(document.visibilityState==='visible'&&_gcalAutoSync&&_gcalToken){ gcalSyncNow(); gcalSyncReminders(); }
 });
 
 // ── 授業計画（1時間ごとの内容＋クラス別進度） ──
