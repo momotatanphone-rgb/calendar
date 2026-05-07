@@ -70,7 +70,7 @@ body{font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans',Meiryo,sans-serif;b
 .memo-line{font-size:9px;color:var(--amber);margin-top:2px}
 .sec{background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--rl);padding:15px;margin-bottom:12px}
 .sec-ttl{font-size:10px;font-weight:500;color:var(--txt3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px}
-.srow{display:grid;grid-template-columns:1fr 1fr 26px 26px;gap:7px;align-items:center;margin-bottom:6px}
+.srow{display:grid;grid-template-columns:1fr 26px 26px;gap:7px;align-items:center;margin-bottom:6px}
 .srow input{font-size:13px;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);width:100%;outline:none}
 .srow input:focus{border-color:var(--teal)}
 .cdot{width:24px;height:24px;border-radius:50%;border:2px solid rgba(0,0,0,.15);cursor:pointer}
@@ -432,17 +432,19 @@ canvas{display:block}
     <div class="tt-wrap"><table class="tt-table" id="tt-table"></table></div>
     <div style="margin-top:8px;font-size:12px;color:var(--txt3)">月曜: 5時間授業 ／ 火〜金: 6時間授業 ／ クリックで編集</div>
   </div>
+
   <div class="sec">
-    <div class="sec-ttl">時限・時刻設定</div>
-    <div style="display:grid;grid-template-columns:30px 1fr 1fr;gap:7px;margin-bottom:6px">
-      <span></span>
-      <span style="font-size:11px;color:var(--txt3)">開始</span>
-      <span style="font-size:11px;color:var(--txt3)">終了</span>
+    <div class="sec-ttl">クラス設定</div>
+    <div style="font-size:11px;color:var(--txt3);margin-bottom:8px">担当するクラスを登録します。コマ設定時にここから選べます。</div>
+    <div id="cls-list"></div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <input type="text" id="cls-add-input" placeholder="例: 3-1" style="flex:1;font-size:13px;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none"/>
+      <button class="addbtn" style="margin-top:0;white-space:nowrap" onclick="addClassItem()">＋ 追加</button>
     </div>
-    <div id="plist"></div>
   </div>
+
   <div class="sec">
-    <div class="sec-ttl">教科・担当クラス</div>
+    <div class="sec-ttl">教科設定</div>
     <div id="slist"></div>
     <button class="addbtn" onclick="addSubj()">+ 教科を追加</button>
   </div>
@@ -501,17 +503,15 @@ canvas{display:block}
     <h3 id="cm-title"></h3>
     <div id="cm-tt-note" style="font-size:12px;color:var(--teal-m);background:var(--teal-l);padding:6px 10px;border-radius:var(--r);margin-bottom:4px;display:none">基本時間割の設定です。毎週この曜日・時限に反映されます。</div>
     <div id="cm-ov-note" style="font-size:12px;color:var(--amber);background:var(--amber-l);padding:6px 10px;border-radius:var(--r);margin-bottom:4px;display:none">この日だけ変更します（基本時間割は変わりません）。</div>
-    <label>教科</label>
-    <select id="cm-subj"></select>
-    <label>担当クラス</label>
-    <input type="text" id="cm-cls" placeholder="例: 2年1組"/>
-    <label>教室</label>
-    <input type="text" id="cm-room" placeholder="例: 理科室"/>
+    <label>授業</label>
+    <select id="cm-subj-cls"></select>
     <div id="cm-lesson-wrap" style="display:none;margin-top:10px">
       <label>授業内容</label>
       <select id="cm-lesson"></select>
       <div style="margin-top:4px;font-size:11px;color:var(--txt3)">選んで保存すると次回から次の内容が表示されます</div>
     </div>
+    <label>教室</label>
+    <input type="text" id="cm-room" placeholder="例: 理科室"/>
     <label>メモ</label>
     <input type="text" id="cm-memo" placeholder="任意"/>
     <div class="mbtns">
@@ -650,24 +650,17 @@ let lx=0,ly=0;
 // デフォルトデータ
 const S_DEFAULT = {
   subjects:[
-    {name:'数学',classes:'1年A組',ci:0},
-    {name:'理科',classes:'2年B組',ci:2},
-    {name:'英語',classes:'3年C組',ci:3},
-    {name:'国語',classes:'1年B組',ci:6},
+    {name:'理科',classes:'3-2,3-3,3-4,3-5',ci:2},
+    {name:'総合',classes:'3-2,3-3,3-4,3-5',ci:3},
+    {name:'道徳',classes:'3-2,3-3,3-4,3-5',ci:4},
+    {name:'学活',classes:'3-2,3-3,3-4,3-5',ci:6},
   ],
   periods:[
     {s:'08:30',e:'09:20'},{s:'09:30',e:'10:20'},
     {s:'10:30',e:'11:20'},{s:'11:30',e:'12:20'},
     {s:'13:20',e:'14:10'},{s:'14:20',e:'15:10'},
   ],
-  tt:{
-    'mon-1':{subj:'数学',cls:'1年A組',room:'1-A教室'},
-    'mon-3':{subj:'理科',cls:'2年B組',room:'理科室'},
-    'tue-2':{subj:'英語',cls:'3年C組',room:'2-B教室'},
-    'wed-1':{subj:'数学',cls:'1年A組',room:'1-A教室'},
-    'thu-4':{subj:'国語',cls:'1年B組',room:'国語室'},
-    'fri-3':{subj:'英語',cls:'3年C組',room:'2-B教室'},
-  },
+  tt:{},
   overrides:{},
   drawings:{},
   schedules:{},
@@ -690,6 +683,7 @@ function loadState(){
       const merged = Object.assign({}, S_DEFAULT, parsed);
       // 新しいキーが古いデータにない場合はデフォルト値を使う
       if(!merged.lessonCellMap) merged.lessonCellMap={};
+      if(!merged.classList) merged.classList=['3-2','3-3','3-4','3-5'];
       if(!merged.lessonStart) merged.lessonStart={};
       if(!merged.testEvents) merged.testEvents=[];
       return merged;
@@ -743,6 +737,10 @@ function showPg(id,btn){
   if(id==='settings'){
     renderSettings();
     initPasteYearMonth();
+  }
+  if(id==='schedule'){
+    // 時間割ページに戻ったとき常に再描画
+    if(view==='week') renderWeek(); else renderMonth();
   }
 }
 function goToday(){wOff=0;mOff=0;if(view==='week')renderWeek();else renderMonth();}
@@ -818,8 +816,7 @@ function renderWeek(){
         chip.style.cssText=`background:${c.bg};border-left-color:${c.b}`;
         chip.innerHTML=`
           <div style="display:flex;align-items:baseline;gap:4px;flex-wrap:wrap">
-            <div class="cn" style="color:${c.fg}">${data.cls||''}</div>
-            <div class="cr" style="color:${c.fg};font-size:10px">${data.subj}</div>
+            <div class="cn" style="color:${c.fg}">${data.subj||''} ${data.cls||''}</div>
           </div>
         `;
         // 授業内容を表示
@@ -974,15 +971,26 @@ function openCM(key,title,isTT,ds,dk2,pp){
     if(S.overrides[ok]!==undefined) data=S.overrides[ok];
     else data=S.tt[`${dk2}-${pp}`]||null;
   }
-  const sel=document.getElementById('cm-subj');
-  sel.innerHTML='<option value="">-- 授業なし --</option>'+S.subjects.map(s=>`<option value="${s.name}"${data&&data.subj===s.name?' selected':''}>${s.name}</option>`).join('');
-  document.getElementById('cm-cls').value=data?.cls||'';
+  // 教科×クラスの組み合わせリスト
+  const sel=document.getElementById('cm-subj-cls');
+  const currentSubj=data?.subj||'';
+  const currentCls=data?.cls||'';
+  const currentVal=currentSubj&&currentCls?currentSubj+'__'+currentCls:'';
+  let opts='<option value="">-- 授業なし --</option>';
+  S.subjects.forEach(s=>{
+    getUniqueClasses().forEach(c=>{
+      const val=s.name+'__'+c;
+      opts+=`<option value="${val}"${val===currentVal?' selected':''}>${s.name} ${c}</option>`;
+    });
+  });
+  sel.innerHTML=opts;
   document.getElementById('cm-room').value=data?.room||'';
   document.getElementById('cm-memo').value=data?.memo||'';
   document.getElementById('cm-del').style.display=data?'block':'none';
 
   // 授業内容ドロップダウン
-  const cls = data?.cls||'';
+  const subjClsVal2=document.getElementById('cm-subj-cls')?.value||'';
+  const cls = subjClsVal2.includes('__')?subjClsVal2.split('__')[1]:(data?.cls||'');
   const lessonWrap = document.getElementById('cm-lesson-wrap');
   const lessonSel = document.getElementById('cm-lesson');
   if(S.lessonPlan && S.lessonPlan.length>0 && !isTT){
@@ -998,13 +1006,29 @@ function openCM(key,title,isTT,ds,dk2,pp){
     lessonSel.innerHTML='';
   }
 
+  // 授業選択変更時に授業内容ドロップダウンを更新
+  document.getElementById('cm-subj-cls').onchange=function(){
+    const v=this.value;
+    const c=v.includes('__')?v.split('__')[1]:'';
+    const lw=document.getElementById('cm-lesson-wrap');
+    const ls=document.getElementById('cm-lesson');
+    if(S.lessonPlan&&S.lessonPlan.length>0&&c&&!editIsTT){
+      lw.style.display='block';
+      const cur=getCurrentUnit(c,_ds,_dk,String(_pp));
+      const ci=cur?cur.idx:0;
+      ls.innerHTML='<option value="">-- 授業内容を選択 --</option>'+S.lessonPlan.map((u,i)=>
+        `<option value="${i}"${i===ci?' selected':''}>${'第'+(i+1)+'時 '+(u.content||'（未設定）')}</option>`
+      ).join('');
+    } else { lw.style.display='none'; }
+  };
   document.getElementById('cls-modal').classList.add('on');
   }catch(e){ console.error('openCM error:',e); alert('エラー: '+e.message); }
 }
 function closeCM(){document.getElementById('cls-modal').classList.remove('on');}
 function saveCM(){
-  const subj=document.getElementById('cm-subj').value;
-  const cls=document.getElementById('cm-cls').value;
+  const subjClsVal3=document.getElementById('cm-subj-cls')?.value||'';
+  const subj=subjClsVal3.includes('__')?subjClsVal3.split('__')[0]:'';
+  const cls=subjClsVal3.includes('__')?subjClsVal3.split('__')[1]:'';
   // ※ autoSaveは末尾で呼ぶ
   const val=subj?{subj,cls,room:document.getElementById('cm-room').value,memo:document.getElementById('cm-memo').value}:null;
   if(editIsTT){if(val)S.tt[editKey]=val;else delete S.tt[editKey];}
@@ -1016,12 +1040,16 @@ function saveCM(){
     const selIdx=parseInt(lessonSel.value);
     if(!isNaN(selIdx)){
       if(!S.lessonCellMap) S.lessonCellMap={};
-      // このコマを保存（キーは文字列結合）
+
+      // このコマを保存
       const ck=_ds+'-'+_dk+'-'+String(_pp);
       S.lessonCellMap[ck]=selIdx;
+
+      // 次の授業インデックス
+      let nxt=Math.min(selIdx+1,(S.lessonPlan.length||1)-1);
+
       // 今週の同クラスの後続コマに順番通り自動入力
       if(_lastDates&&Array.isArray(_lastDates)&&cls){
-        let nxt=Math.min(selIdx+1,(S.lessonPlan.length||1)-1);
         let found=false;
         for(let di=0;di<_lastDates.length;di++){
           const ds2=iso(_lastDates[di]);
@@ -1031,19 +1059,41 @@ function saveCM(){
             if(ck2===ck){found=true;continue;}
             if(!found) continue;
             const d2=getCellData(DK[di],p2,ds2);
-            if(d2&&d2.cls===cls&&S.lessonCellMap[ck2]===undefined){
-              S.lessonCellMap[ck2]=nxt;
+            if(d2&&d2.cls===cls){
+              S.lessonCellMap[ck2]=Math.min(nxt,(S.lessonPlan.length||1)-1);
               nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
             }
           }
         }
       }
+
+      // 次週〜16週先の同じ曜日・同じ時限のコマに順番通り自動入力
+      if(cls&&_dk&&_pp){
+        const baseDate=new Date(_ds);
+        for(let w=1;w<=16;w++){
+          const futureDate=new Date(baseDate);
+          futureDate.setDate(baseDate.getDate()+w*7);
+          const fds=iso(futureDate);
+          const fck=fds+'-'+_dk+'-'+String(_pp);
+          const fdata=getCellData(_dk,Number(_pp),fds);
+          if(fdata&&fdata.cls===cls){
+            // 既に設定済みでも上書き（授業内容を変えたときに追従）
+            S.lessonCellMap[fck]=Math.min(nxt,(S.lessonPlan.length||1)-1);
+            nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
+          }
+        }
+      }
+
       renderPlanList();
     }
   }
     closeCM();
+  _skipNextSync=true;
   autoSave();
-  if(view==='week')renderWeek();else renderMonth();
+  // 基本時間割変更時は設定ページのテーブルも更新
+  if(editIsTT) renderTT();
+  // 常に週・月表示を更新
+  if(view==='week') renderWeek(); else renderMonth();
 }
 function deleteEntry(){
   if(editIsTT) delete S.tt[editKey];
@@ -1636,7 +1686,7 @@ function deleteDocFromViewer(){
 }
 
 // ── 設定 ──
-function renderSettings(){renderTT();renderPeriods();renderSubjects();recalcLessonLog();renderPlanList();renderCountdowns();renderBackupHistory();
+function renderSettings(){renderTT();renderSubjects();renderClassList();recalcLessonLog();renderPlanList();renderCountdowns();renderBackupHistory();
   // localStorage状態表示
   try{
     const saved = localStorage.getItem('jugyo_kanri_data');
@@ -1665,7 +1715,7 @@ function renderTT(){
         const subj=S.subjects.find(s=>s.name===data.subj);
         const c=subj?COLS[subj.ci%COLS.length]:COLS[0];
         div.style.cssText=`background:${c.bg};border-left-color:${c.b}`;
-        div.innerHTML=`<div class="tt-cell-name" style="color:${c.fg}">${data.cls||''}</div><div class="tt-cell-cls" style="color:${c.fg}">${data.subj}</div>`;
+        div.innerHTML=`<div class="tt-cell-name" style="color:${c.fg}">${data.subj}</div>`;
       } else {div.textContent='+';}
       if(!noC) div.onclick=()=>openCM(`${dk2}-${p+1}`,`${DJ[i]}曜 ${p+1}時限（基本設定）`,true,null,dk2,p+1);
       td.appendChild(div);
@@ -1683,18 +1733,59 @@ function renderPeriods(){
 function renderSubjects(){
   const sl=document.getElementById('slist');sl.innerHTML='';
   const hdr=document.createElement('div');hdr.className='srow';hdr.style.marginBottom='4px';
-  hdr.innerHTML='<span style="font-size:11px;color:var(--txt3)">教科名</span><span style="font-size:11px;color:var(--txt3)">担当クラス</span><span></span><span></span>';
+  hdr.innerHTML='<span style="font-size:11px;color:var(--txt3)">教科名</span><span></span><span></span>';
   sl.appendChild(hdr);
   S.subjects.forEach((s,i)=>{
     const row=document.createElement('div');row.className='srow';
     const c=COLS[s.ci%COLS.length];
-    row.innerHTML=`<input type="text" value="${s.name}" onchange="S.subjects[${i}].name=this.value"><input type="text" value="${s.classes}" onchange="S.subjects[${i}].classes=this.value"><button class="cdot" style="background:${c.b}" onclick="cycleC(${i})"></button><button class="dbtn" onclick="delSubj(${i})">×</button>`;
+    row.innerHTML=`<input type="text" value="${s.name}" onchange="S.subjects[${i}].name=this.value"><button class="cdot" style="background:${c.b}" onclick="cycleC(${i})"></button><button class="dbtn" onclick="delSubj(${i})">×</button>`;
     sl.appendChild(row);
   });
 }
+
+// ── クラス設定 ──
+function renderClassList(){
+  const el=document.getElementById('cls-list');
+  if(!el) return;
+  if(!S.classList) S.classList=['3-2','3-3','3-4','3-5'];
+  el.innerHTML='';
+  if(S.classList.length===0){
+    el.innerHTML='<div style="font-size:12px;color:var(--txt3);padding:4px 0">クラスがありません</div>';
+    return;
+  }
+  const wrap=document.createElement('div');
+  wrap.style.cssText='display:flex;flex-wrap:wrap;gap:6px;';
+  S.classList.forEach((cls,i)=>{
+    const chip=document.createElement('div');
+    chip.style.cssText='display:flex;align-items:center;gap:4px;padding:4px 10px;background:var(--bg2);border:0.5px solid var(--border2);border-radius:99px;font-size:13px;';
+    chip.innerHTML=`<span>${cls}</span><button onclick="deleteClassItem(${i})" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--txt3);padding:0;line-height:1;margin-left:2px">×</button>`;
+    wrap.appendChild(chip);
+  });
+  el.appendChild(wrap);
+}
+
+function addClassItem(){
+  const input=document.getElementById('cls-add-input');
+  const val=(input.value||'').trim();
+  if(!val) return;
+  if(!S.classList) S.classList=[];
+  if(S.classList.includes(val)){ input.value=''; return; }
+  S.classList.push(val);
+  input.value='';
+  renderClassList();
+  autoSave();
+}
+
+function deleteClassItem(i){
+  if(!S.classList) return;
+  S.classList.splice(i,1);
+  renderClassList();
+  autoSave();
+}
+
 function cycleC(i){S.subjects[i].ci=(S.subjects[i].ci+1)%COLS.length;renderSubjects();renderTT();}
 function addSubj(){S.subjects.push({name:'新教科',classes:'',ci:S.subjects.length%COLS.length});renderSubjects();autoSave();}
-function delSubj(i){if(!confirm(`「${S.subjects[i].name}」を削除しますか？`))return;S.subjects.splice(i,1);renderSubjects();renderTT();autoSave();}
+function delSubj(i){S.subjects.splice(i,1);renderSubjects();renderTT();autoSave();}
 // connectDrive は loadDriveCSV に置き換え
 document.getElementById('cls-modal').onclick=e=>{if(e.target===document.getElementById('cls-modal'))closeCM();};
 document.getElementById('draw-modal').onclick=e=>{if(e.target===document.getElementById('draw-modal'))closeDM();};
@@ -2354,11 +2445,14 @@ function gcalUpdateSyncBadge(state){
 
 
 let _gcalSyncing=false;
+let _skipNextSync=false;
 function gcalSyncIfActive(){
   // renderWeek内から直接呼ばれる → 同期中でなければ非同期で実行
-  if(_gcalAutoSync&&_gcalToken&&!_gcalSyncing){
-    setTimeout(gcalSyncNow, 100);
+  // ユーザー操作直後は同期をスキップ（表示上書き防止）
+  if(_gcalAutoSync&&_gcalToken&&!_gcalSyncing&&!_skipNextSync){
+    setTimeout(gcalSyncNow, 2000); // 2秒後に同期（操作直後を避ける）
   }
+  _skipNextSync=false;
 }
 
 // タブ復帰時に即時同期
@@ -2379,11 +2473,12 @@ function addPlanUnit(){
 }
 
 function getUniqueClasses(){
+  // S.classList を優先、なければ既存データから収集
+  if(S.classList && S.classList.length>0) return [...S.classList].sort();
   const set = new Set();
   Object.values(S.tt).forEach(v=>{ if(v&&v.cls) set.add(v.cls); });
-  S.subjects.forEach(s=>{
-    if(s.classes) s.classes.split(/[,、，]/).forEach(c=>{ if(c.trim()) set.add(c.trim()); });
-  });
+  Object.values(S.overrides).forEach(v=>{ if(v&&v.cls) set.add(v.cls); });
+  ['3-2','3-3','3-4','3-5'].forEach(c=>set.add(c));
   return [...set].sort();
 }
 
