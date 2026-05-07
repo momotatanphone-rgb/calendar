@@ -677,6 +677,7 @@ const S_DEFAULT = {
   lessonLog:{},
   lessonPlan:[],
   lessonStart:{},
+  lessonCellMap:{},
   testEvents:[],
 };
 
@@ -819,7 +820,7 @@ function renderWeek(){
         `;
         // 授業内容を表示（このコマ固有or現在地）
         if(data.cls && S.lessonPlan && S.lessonPlan.length>0){
-          const cur = getCurrentUnit(data.cls, ds, DK[i], p+1);
+          const cur = getCurrentUnit(data.cls, ds, DK[i], p+1);  // cellKey: ds-DK[i]-(p+1)
           if(cur && cur.unit.content){
             const unitDiv = document.createElement('div');
             unitDiv.className = 'chip-unit';
@@ -1005,17 +1006,49 @@ function saveCM(){
   if(editIsTT){if(val)S.tt[editKey]=val;else delete S.tt[editKey];}
   else{S.overrides[`${_ds}-${_dk}-${_pp}`]=val;}
 
-  // 授業内容の進度を更新
+  // 授業内容の進度を更新（コマごとに直接記録＋以降のコマに順番通り自動入力）
   const lessonSel = document.getElementById('cm-lesson');
   if(lessonSel && document.getElementById('cm-lesson-wrap').style.display!=='none'
-     && lessonSel.value !== '' && lessonSel.value !== null && !editIsTT && _ds){
+     && lessonSel.value !== '' && !editIsTT && _ds && _dk && _pp){
     const selectedIdx = parseInt(lessonSel.value);
     if(!isNaN(selectedIdx)){
-      if(!S.lessonStart) S.lessonStart={};
-      const clsForLesson = cls || document.getElementById('cm-cls').value;
-      if(clsForLesson){
-        S.lessonStart[clsForLesson] = {startDs: _ds, startIdx: selectedIdx};
+      if(!S.lessonCellMap) S.lessonCellMap={};
+
+      // 1. このコマに選んだ回を記録
+      const cellKey = _ds+'-'+_dk+'-'+Number(_pp);
+      S.lessonCellMap[cellKey] = selectedIdx;
+
+      // 2. 今週・来週以降の同クラスのコマに順番通り自動入力（20週分）
+      const today = new Date(_ds);
+      const base = getMon(today);
+      let nextIdx = selectedIdx + 1;
+      let passedSaved = false;
+
+      for(let w=0; w<20; w++){
+        const mon = new Date(base); mon.setDate(base.getDate()+w*7);
+        for(let di=0; di<5; di++){
+          const d = new Date(mon); d.setDate(mon.getDate()+di);
+          const ds2 = iso(d);
+          const maxP = di===0?5:6;
+          for(let p=1; p<=maxP; p++){
+            // 保存したコマの次から処理開始
+            const k = ds2+'-'+DK[di]+'-'+p;
+            if(k === cellKey){ passedSaved=true; continue; }
+            if(!passedSaved) continue;
+
+            // 同クラスのコマか確認（基本TTまたはoverride）
+            const cellData = getCellData(DK[di], p, ds2);
+            if(!cellData || cellData.cls !== cls) continue;
+
+            // 授業計画の範囲内なら自動入力
+            if(nextIdx < S.lessonPlan.length){
+              S.lessonCellMap[k] = nextIdx;
+              nextIdx++;
+            }
+          }
+        }
       }
+
       renderPlanList();
     }
   }
@@ -2368,88 +2401,18 @@ function getUniqueClasses(){
 
 // コマの授業内容を返す
 function getCurrentUnit(cls, cellDs, cellDk, cellPp){
-  try{
-    if(!S.lessonPlan || S.lessonPlan.length===0) return null;
-    if(!cellDs || !cellDk || cellPp===undefined || cellPp===null){
-      return {unit:S.lessonPlan[0], idx:0};
+  if(!S.lessonPlan||S.lessonPlan.length===0) return null;
+  // コマごとの記録があればそれを使う
+  if(cellDs && cellDk && cellPp!==undefined){
+    const k = cellDs+'-'+cellDk+'-'+Number(cellPp);
+    if(S.lessonCellMap && S.lessonCellMap[k]!==undefined){
+      const idx = Math.min(S.lessonCellMap[k], S.lessonPlan.length-1);
+      return {unit:S.lessonPlan[idx], idx};
     }
-    if(!S.lessonStart || !S.lessonStart[cls]){
-      return {unit:S.lessonPlan[0], idx:0};
-    }
-
-    const {startDs, startIdx} = S.lessonStart[cls];
-    if(!startDs) return {unit:S.lessonPlan[0], idx:0};
-
-    // 起点より前 → 第1時
-    if(cellDs < startDs) return {unit:S.lessonPlan[0], idx:0};
-
-    // 起点が対象コマと同じ → startIdx をそのまま返す
-    if(cellDs === startDs && cellDk === DK[DK.indexOf(cellDk)] && Number(cellPp) === Number(cellPp)){
-      const startDow = new Date(startDs).getDay();
-      const startDi = startDow===0?-1:startDow-1;
-      if(startDi === DK.indexOf(cellDk) && Number(cellPp) === Number(cellPp)){
-        // 同じコマかどうか
-        if(cellDk === DK[startDi]) {
-          return {unit:S.lessonPlan[Math.min(startIdx,S.lessonPlan.length-1)], idx:Math.min(startIdx,S.lessonPlan.length-1)};
-        }
-      }
-    }
-
-    // 基本時間割から同クラスのコマを曜・時限順に取得
-    const weekly = [];
-    for(let di=0; di<5; di++){
-      const maxP = di===0?5:6;
-      for(let p2=1; p2<=maxP; p2++){
-        const ttData = S.tt[`${DK[di]}-${p2}`];
-        if(ttData && ttData.cls===cls) weekly.push({di,p:p2});
-      }
-    }
-    if(weekly.length===0) return {unit:S.lessonPlan[Math.min(startIdx,S.lessonPlan.length-1)], idx:Math.min(startIdx,S.lessonPlan.length-1)};
-
-    // 起点日から対象コマまでの授業コマ数を数える（起点コマ=0番目）
-    const startDate = new Date(startDs);
-    const cellDate  = new Date(cellDs);
-    const startMon  = getMon(startDate);
-    const cellDi    = DK.indexOf(cellDk);
-    const cellPpN   = Number(cellPp);
-
-    // 起点の曜日・時限
-    const startDow = startDate.getDay(); // 0=日
-    const startDi2 = startDow===0?-1:startDow-1;
-    // 起点曜日のweeklyインデックス（最初のコマ）
-    const startWiArr = weekly.filter(w=>w.di===startDi2);
-    const startWi = startWiArr.length>0 ? weekly.indexOf(startWiArr[0]) : 0;
-
-    let offset = 0;
-    const startMon2 = new Date(startMon);
-    const weekDiff = Math.round((getMon(cellDate)-startMon2)/(7*24*3600*1000));
-
-    let counting = false;
-    outer:
-    for(let w=0; w<=weekDiff+1; w++){
-      for(let wi=0; wi<weekly.length; wi++){
-        const {di,p:p3} = weekly[wi];
-        const d = new Date(startMon2); d.setDate(startMon2.getDate()+w*7+di);
-        const ds3 = iso(d);
-
-        // 起点コマで counting 開始
-        if(!counting && ds3===startDs && di===startDi2) counting=true;
-        if(!counting) continue;
-
-        // 対象コマに到達したら終了
-        if(ds3===cellDs && di===cellDi && p3===cellPpN) break outer;
-        offset++;
-      }
-    }
-
-    const idx = Math.min(startIdx + offset, S.lessonPlan.length-1);
-    return {unit:S.lessonPlan[idx], idx};
-  }catch(e){
-    console.error('getCurrentUnit error:',e);
-    return S.lessonPlan.length>0?{unit:S.lessonPlan[0],idx:0}:null;
   }
+  // 記録なし → 第1時
+  return {unit:S.lessonPlan[0], idx:0};
 }
-
 
 function renderPlanList(){
   const list = document.getElementById('plan-list');
