@@ -810,7 +810,8 @@ function renderWeek(){
 
       if(data){
         const subj=S.subjects.find(s=>s.name===data.subj);
-        const c=subj?COLS[subj.ci%COLS.length]:COLS[0];
+        const clsIdx2=(S.classList||['3-2','3-3','3-4','3-5']).indexOf(data.cls);
+        const c=clsIdx2>=0?COLS[clsIdx2%COLS.length]:(subj?COLS[subj.ci%COLS.length]:COLS[0]);
         const chip=document.createElement('div');
         chip.className='chip';
         chip.style.cssText=`background:${c.bg};border-left-color:${c.b}`;
@@ -1070,14 +1071,19 @@ function saveCM(){
       // 次週〜16週先の同じ曜日・同じ時限のコマに順番通り自動入力
       if(cls&&_dk&&_pp){
         const baseDate=new Date(_ds);
+        // 基本時間割でこの曜・時限がこのクラスか確認
+        const ttData=S.tt[_dk+'-'+String(_pp)];
+        const ttCls=ttData?ttData.cls:'';
         for(let w=1;w<=16;w++){
           const futureDate=new Date(baseDate);
           futureDate.setDate(baseDate.getDate()+w*7);
           const fds=iso(futureDate);
           const fck=fds+'-'+_dk+'-'+String(_pp);
-          const fdata=getCellData(_dk,Number(_pp),fds);
-          if(fdata&&fdata.cls===cls){
-            // 既に設定済みでも上書き（授業内容を変えたときに追従）
+          // overrideがあればそちらを優先、なければttを見る
+          const ovKey=fds+'-'+_dk+'-'+String(_pp);
+          const ovData=S.overrides[ovKey];
+          const cellCls=ovData!==undefined?(ovData?ovData.cls:''):ttCls;
+          if(cellCls===cls){
             S.lessonCellMap[fck]=Math.min(nxt,(S.lessonPlan.length||1)-1);
             nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
           }
@@ -1715,7 +1721,7 @@ function renderTT(){
         const subj=S.subjects.find(s=>s.name===data.subj);
         const c=subj?COLS[subj.ci%COLS.length]:COLS[0];
         div.style.cssText=`background:${c.bg};border-left-color:${c.b}`;
-        div.innerHTML=`<div class="tt-cell-name" style="color:${c.fg}">${data.subj}</div>`;
+        div.innerHTML=`<div class="tt-cell-name" style="color:${c.fg}">${data.subj}</div><div class="tt-cell-cls" style="color:${c.fg}">${data.cls||''}</div>`;
       } else {div.textContent='+';}
       if(!noC) div.onclick=()=>openCM(`${dk2}-${p+1}`,`${DJ[i]}曜 ${p+1}時限（基本設定）`,true,null,dk2,p+1);
       td.appendChild(div);
