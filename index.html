@@ -838,11 +838,16 @@ function renderWeek(){
       }
       const ph=document.createElement('div');ph.className='pencil-hint';ph.textContent='✏️';cell.appendChild(ph);
 
-      // 長押し or 右クリックで手書き
+      // 長押しで手書き（右クリックまたは800ms長押し）
       cell.addEventListener('contextmenu',e=>{e.preventDefault();openDraw(`draw-${DK[i]}-${p+1}-${ds}`,`✏️ ${DJ[i]}曜 ${p+1}時限 手書きメモ`);});
-      let lt=null;
-      cell.addEventListener('touchstart',()=>{lt=setTimeout(()=>openDraw(`draw-${DK[i]}-${p+1}-${ds}`,`✏️ ${DJ[i]}曜 ${p+1}時限 手書きメモ`),800);},{passive:true});
-      cell.addEventListener('touchmove',()=>{clearTimeout(lt);lt=null;},{passive:true});
+      let lt=null, touchMoved=false;
+      cell.addEventListener('touchstart',e=>{
+        touchMoved=false;
+        lt=setTimeout(()=>{
+          if(!touchMoved) openDraw(`draw-${DK[i]}-${p+1}-${ds}`,`✏️ ${DJ[i]}曜 ${p+1}時限 手書きメモ`);
+        },800);
+      },{passive:true});
+      cell.addEventListener('touchmove',()=>{touchMoved=true;clearTimeout(lt);lt=null;},{passive:true});
       cell.addEventListener('touchend',()=>{clearTimeout(lt);lt=null;},{passive:true});
       grid.appendChild(cell);
     });
@@ -952,6 +957,7 @@ function swapCells(from, to){
 
 // ── 授業モーダル ──
 function openCM(key,title,isTT,ds,dk2,pp){
+  try{
   editKey=key;editIsTT=isTT;_ds=ds;_dk=dk2;_pp=pp;
   document.getElementById('cm-title').textContent=title;
   document.getElementById('cm-tt-note').style.display=isTT?'block':'none';
@@ -974,11 +980,11 @@ function openCM(key,title,isTT,ds,dk2,pp){
   const cls = data?.cls||'';
   const lessonWrap = document.getElementById('cm-lesson-wrap');
   const lessonSel = document.getElementById('cm-lesson');
-  if(S.lessonPlan && S.lessonPlan.length>0 && cls){
+  if(S.lessonPlan && S.lessonPlan.length>0 && !isTT){
     lessonWrap.style.display='block';
-    const cur2 = getCurrentUnit(cls, ds, dk2, String(pp));
+    const cur2 = cls ? getCurrentUnit(cls, ds, dk2, String(pp)) : null;
     const curIdx = cur2 ? cur2.idx : 0;
-    lessonSel.innerHTML = S.lessonPlan.map((u,i)=>{
+    lessonSel.innerHTML = '<option value="">-- 授業内容を選択 --</option>' + S.lessonPlan.map((u,i)=>{
       const label = `第${i+1}時 ${u.content||'（内容未設定）'}`;
       return `<option value="${i}"${i===curIdx?' selected':''}>${label}</option>`;
     }).join('');
@@ -988,6 +994,7 @@ function openCM(key,title,isTT,ds,dk2,pp){
   }
 
   document.getElementById('cls-modal').classList.add('on');
+  }catch(e){ console.error('openCM error:',e); alert('エラー: '+e.message); }
 }
 function closeCM(){document.getElementById('cls-modal').classList.remove('on');}
 function saveCM(){
@@ -1525,12 +1532,13 @@ function renderDocsGrid(){
   const docs=(S.docs&&S.docs[ds])||[];
   const grid=document.getElementById('docs-grid');
   const empty=document.getElementById('docs-empty');
+  if(!grid)return;
   grid.innerHTML='';
 
   if(docs.length===0){
-    empty.style.display='block';
+    if(empty) empty.style.display='block';
   } else {
-    empty.style.display='none';
+    if(empty) empty.style.display='none';
     docs.forEach((doc,idx)=>{
       const card=document.createElement('div');
       card.className='doc-card';
@@ -2557,6 +2565,42 @@ function movePlanLesson(idx, dir){
   renderPlanList(); renderWeek(); autoSave();
 }
 
+
+// 全予定をGoogleカレンダーに書き出す
+async function gcalExportAll(){
+  if(!_gcalToken){ gcalToggleAuth(); return; }
+  if(!S.schedules||Object.keys(S.schedules).length===0){
+    alert('書き出す予定がありません'); return;
+  }
+  const total=Object.values(S.schedules).reduce((s,items)=>s+(items||[]).length,0);
+  if(!confirm(`アプリ内の全予定（${total}件）をGoogleカレンダーに書き出しますか？\n同期済みの予定はスキップされます。`)) return;
+
+  let exported=0,skipped=0,failed=0;
+  for(const ds of Object.keys(S.schedules).sort()){
+    for(const item of (S.schedules[ds]||[])){
+      if(item.gcalId){skipped++;continue;}
+      if(!item.title) continue;
+      const isAllDay=!item.start;
+      const startDt=isAllDay?{date:ds}:{dateTime:new Date(`${ds}T${item.start}:00`).toISOString(),timeZone:'Asia/Tokyo'};
+      const endTime=item.end||item.start;
+      const endDt=isAllDay?{date:(()=>{const d=new Date(ds);d.setDate(d.getDate()+1);return iso(d);})()}:{dateTime:new Date(`${ds}T${endTime}:00`).toISOString(),timeZone:'Asia/Tokyo'};
+      try{
+        const res=await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',
+          {method:'POST',headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
+           body:JSON.stringify({summary:item.title,description:item.note||'',start:startDt,end:endDt})});
+        if(res.status===401){_gcalToken=null;gcalUpdateBtn(false);return;}
+        const ev=await res.json();
+        if(ev.id){item.gcalId=ev.id;exported++;}else failed++;
+      }catch(e){failed++;}
+    }
+  }
+  autoSave();
+  let msg=`✅ ${exported}件をGoogleカレンダーに書き出しました`;
+  if(skipped) msg+=`\n（${skipped}件は同期済みのためスキップ）`;
+  if(failed) msg+=`\n（${failed}件はエラー）`;
+  alert(msg);
+  gcalFetchWeek();
+}
 
 // ── Googleドライブ データ同期 ──
 const DRIVE_FILE_NAME = 'jugyo_kanri_backup.json';
