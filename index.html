@@ -677,6 +677,7 @@ const S_DEFAULT = {
   lessonLog:{},
   lessonPlan:[],
   lessonStart:{},
+  lessonCellMap:{},
   testEvents:[],
 };
 
@@ -686,8 +687,12 @@ function loadState(){
     const saved = localStorage.getItem('jugyo_kanri_data');
     if(saved){
       const parsed = JSON.parse(saved);
-      // デフォルトにない新しいキーも保持しつつマージ
-      return Object.assign({}, S_DEFAULT, parsed);
+      const merged = Object.assign({}, S_DEFAULT, parsed);
+      // 新しいキーが古いデータにない場合はデフォルト値を使う
+      if(!merged.lessonCellMap) merged.lessonCellMap={};
+      if(!merged.lessonStart) merged.lessonStart={};
+      if(!merged.testEvents) merged.testEvents=[];
+      return merged;
     }
   }catch(e){ console.warn('State load error:', e); }
   return Object.assign({}, S_DEFAULT);
