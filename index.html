@@ -677,7 +677,6 @@ const S_DEFAULT = {
   lessonLog:{},
   lessonPlan:[],
   lessonStart:{},
-  lessonCellMap:{},
   testEvents:[],
 };
 
@@ -820,7 +819,7 @@ function renderWeek(){
         `;
         // 授業内容を表示（このコマ固有or現在地）
         if(data.cls && S.lessonPlan && S.lessonPlan.length>0){
-          const cur = getCurrentUnit(data.cls, ds, DK[i], p+1);  // cellKey: ds-DK[i]-(p+1)
+          const cur = getCurrentUnit(data.cls, ds, DK[i], p+1);
           if(cur && cur.unit.content){
             const unitDiv = document.createElement('div');
             unitDiv.className = 'chip-unit';
@@ -1006,54 +1005,38 @@ function saveCM(){
   if(editIsTT){if(val)S.tt[editKey]=val;else delete S.tt[editKey];}
   else{S.overrides[`${_ds}-${_dk}-${_pp}`]=val;}
 
-  // 授業内容の進度を更新（コマごとに直接記録＋以降のコマに順番通り自動入力）
-  const lessonSel = document.getElementById('cm-lesson');
-  if(lessonSel && document.getElementById('cm-lesson-wrap').style.display!=='none'
-     && lessonSel.value !== '' && !editIsTT && _ds && _dk && _pp){
-    const selectedIdx = parseInt(lessonSel.value);
-    if(!isNaN(selectedIdx)){
+  // 授業内容をコマに保存
+  const lessonSel=document.getElementById('cm-lesson');
+  if(lessonSel&&document.getElementById('cm-lesson-wrap').style.display!=='none'&&lessonSel.value!==''&&!editIsTT&&_ds){
+    const selIdx=parseInt(lessonSel.value);
+    if(!isNaN(selIdx)){
       if(!S.lessonCellMap) S.lessonCellMap={};
-
-      // 1. このコマに選んだ回を記録
-      const cellKey = _ds+'-'+_dk+'-'+Number(_pp);
-      S.lessonCellMap[cellKey] = selectedIdx;
-
-      // 2. 今週・来週以降の同クラスのコマに順番通り自動入力（20週分）
-      const today = new Date(_ds);
-      const base = getMon(today);
-      let nextIdx = selectedIdx + 1;
-      let passedSaved = false;
-
-      for(let w=0; w<20; w++){
-        const mon = new Date(base); mon.setDate(base.getDate()+w*7);
-        for(let di=0; di<5; di++){
-          const d = new Date(mon); d.setDate(mon.getDate()+di);
-          const ds2 = iso(d);
-          const maxP = di===0?5:6;
-          for(let p=1; p<=maxP; p++){
-            // 保存したコマの次から処理開始
-            const k = ds2+'-'+DK[di]+'-'+p;
-            if(k === cellKey){ passedSaved=true; continue; }
-            if(!passedSaved) continue;
-
-            // 同クラスのコマか確認（基本TTまたはoverride）
-            const cellData = getCellData(DK[di], p, ds2);
-            if(!cellData || cellData.cls !== cls) continue;
-
-            // 授業計画の範囲内なら自動入力
-            if(nextIdx < S.lessonPlan.length){
-              S.lessonCellMap[k] = nextIdx;
-              nextIdx++;
+      const savedKey=`${_ds}-${_dk}-${_pp}`;
+      S.lessonCellMap[savedKey]=selIdx;
+      // 今週の同クラス以降コマに自動で次を設定
+      if(_lastDates&&cls){
+        let nextIdx=Math.min(selIdx+1,(S.lessonPlan.length||1)-1);
+        let found=false;
+        for(let di=0;di<_lastDates.length;di++){
+          const ds2=iso(_lastDates[di]); const maxP=di===0?5:6;
+          for(let p2=1;p2<=maxP;p2++){
+            const k2=`${ds2}-${DK[di]}-${p2}`;
+            if(k2===savedKey){found=true;continue;}
+            if(!found) continue;
+            const d2=getCellData(DK[di],p2,ds2);
+            if(d2&&d2.cls===cls&&S.lessonCellMap[k2]===undefined){
+              S.lessonCellMap[k2]=Math.min(nextIdx,(S.lessonPlan.length||1)-1);
+              nextIdx=Math.min(nextIdx+1,(S.lessonPlan.length||1)-1);
             }
           }
         }
       }
-
+      if(!S.lessonStart) S.lessonStart={};
+      S.lessonStart[cls]={startDs:_ds,startIdx:selIdx};
       renderPlanList();
     }
   }
-
-  closeCM();
+    closeCM();
   autoSave();
   if(view==='week')renderWeek();else renderMonth();
 }
@@ -2402,17 +2385,21 @@ function getUniqueClasses(){
 // コマの授業内容を返す
 function getCurrentUnit(cls, cellDs, cellDk, cellPp){
   if(!S.lessonPlan||S.lessonPlan.length===0) return null;
-  // コマごとの記録があればそれを使う
-  if(cellDs && cellDk && cellPp!==undefined){
-    const k = cellDs+'-'+cellDk+'-'+Number(cellPp);
-    if(S.lessonCellMap && S.lessonCellMap[k]!==undefined){
-      const idx = Math.min(S.lessonCellMap[k], S.lessonPlan.length-1);
-      return {unit:S.lessonPlan[idx], idx};
-    }
+  if(!cellDs||!cellDk||cellPp===undefined) return {unit:S.lessonPlan[0],idx:0};
+  if(!S.lessonCellMap) S.lessonCellMap={};
+  const key=`${cellDs}-${cellDk}-${cellPp}`;
+  if(S.lessonCellMap[key]!==undefined){
+    const idx=Math.min(S.lessonCellMap[key],S.lessonPlan.length-1);
+    return {unit:S.lessonPlan[idx],idx};
   }
-  // 記録なし → 第1時
-  return {unit:S.lessonPlan[0], idx:0};
+  // 未設定コマ → クラスの現在進度
+  if(S.lessonStart&&S.lessonStart[cls]){
+    const idx=Math.min(S.lessonStart[cls].startIdx||0,S.lessonPlan.length-1);
+    return {unit:S.lessonPlan[idx],idx};
+  }
+  return {unit:S.lessonPlan[0],idx:0};
 }
+
 
 function renderPlanList(){
   const list = document.getElementById('plan-list');
