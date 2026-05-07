@@ -1007,12 +1007,17 @@ function saveCM(){
 
   // 授業内容の進度を更新
   const lessonSel = document.getElementById('cm-lesson');
-  if(cls && lessonSel && document.getElementById('cm-lesson-wrap').style.display!=='none'){
-    const selectedIdx = parseInt(lessonSel.value)||0;
-    // 起点を「このコマの日付 + 選んだインデックス」に記録
-    if(!S.lessonStart) S.lessonStart={};
-    S.lessonStart[cls] = {startDs: _ds, startIdx: selectedIdx};
-    renderPlanList();
+  if(lessonSel && document.getElementById('cm-lesson-wrap').style.display!=='none'
+     && lessonSel.value !== '' && lessonSel.value !== null && !editIsTT && _ds){
+    const selectedIdx = parseInt(lessonSel.value);
+    if(!isNaN(selectedIdx)){
+      if(!S.lessonStart) S.lessonStart={};
+      const clsForLesson = cls || document.getElementById('cm-cls').value;
+      if(clsForLesson){
+        S.lessonStart[clsForLesson] = {startDs: _ds, startIdx: selectedIdx};
+      }
+      renderPlanList();
+    }
   }
 
   closeCM();
@@ -2365,82 +2370,83 @@ function getUniqueClasses(){
 function getCurrentUnit(cls, cellDs, cellDk, cellPp){
   try{
     if(!S.lessonPlan || S.lessonPlan.length===0) return null;
-
-    // 引数がなければ第1時
     if(!cellDs || !cellDk || cellPp===undefined || cellPp===null){
       return {unit:S.lessonPlan[0], idx:0};
     }
-
-    // 起点未設定 → 第1時
     if(!S.lessonStart || !S.lessonStart[cls]){
       return {unit:S.lessonPlan[0], idx:0};
     }
 
     const {startDs, startIdx} = S.lessonStart[cls];
+    if(!startDs) return {unit:S.lessonPlan[0], idx:0};
 
     // 起点より前 → 第1時
     if(cellDs < startDs) return {unit:S.lessonPlan[0], idx:0};
 
-    // 基本時間割から同クラスのコマ（曜・時限）を取得
-    const weekly = []; // [{di, p}] 月曜=di0から順
-    for(let di=0; di<5; di++){
-      const maxP = di===0 ? 5 : 6;
-      for(let p=1; p<=maxP; p++){
-        const ttData = S.tt[`${DK[di]}-${p}`];
-        if(ttData && ttData.cls===cls) weekly.push({di, p});
+    // 起点が対象コマと同じ → startIdx をそのまま返す
+    if(cellDs === startDs && cellDk === DK[DK.indexOf(cellDk)] && Number(cellPp) === Number(cellPp)){
+      const startDow = new Date(startDs).getDay();
+      const startDi = startDow===0?-1:startDow-1;
+      if(startDi === DK.indexOf(cellDk) && Number(cellPp) === Number(cellPp)){
+        // 同じコマかどうか
+        if(cellDk === DK[startDi]) {
+          return {unit:S.lessonPlan[Math.min(startIdx,S.lessonPlan.length-1)], idx:Math.min(startIdx,S.lessonPlan.length-1)};
+        }
       }
     }
-    if(weekly.length===0) return {unit:S.lessonPlan[0], idx:0};
 
-    // 起点の月曜
-    const startMon = getMon(new Date(startDs));
-    const cellMon  = getMon(new Date(cellDs));
-    const weekDiff = Math.round((cellMon-startMon)/(7*24*3600*1000));
-
-    // 起点コマから対象コマまでのオフセットを数える
-    const cellDi = DK.indexOf(cellDk);
-    const cellPpN = Number(cellPp);
-
-    // 起点の {di, p} を特定
-    const startMon2 = new Date(startMon);
-    let startDi=-1, startP=-1;
+    // 基本時間割から同クラスのコマを曜・時限順に取得
+    const weekly = [];
     for(let di=0; di<5; di++){
-      const d=new Date(startMon2); d.setDate(startMon2.getDate()+di);
-      if(iso(d)===startDs){
-        // この曜日のコマで起点を探す
-        weekly.forEach(w=>{
-          if(w.di===di) { startDi=di; startP=w.p; }
-        });
-        break;
+      const maxP = di===0?5:6;
+      for(let p2=1; p2<=maxP; p2++){
+        const ttData = S.tt[`${DK[di]}-${p2}`];
+        if(ttData && ttData.cls===cls) weekly.push({di,p:p2});
       }
     }
+    if(weekly.length===0) return {unit:S.lessonPlan[Math.min(startIdx,S.lessonPlan.length-1)], idx:Math.min(startIdx,S.lessonPlan.length-1)};
+
+    // 起点日から対象コマまでの授業コマ数を数える（起点コマ=0番目）
+    const startDate = new Date(startDs);
+    const cellDate  = new Date(cellDs);
+    const startMon  = getMon(startDate);
+    const cellDi    = DK.indexOf(cellDk);
+    const cellPpN   = Number(cellPp);
+
+    // 起点の曜日・時限
+    const startDow = startDate.getDay(); // 0=日
+    const startDi2 = startDow===0?-1:startDow-1;
+    // 起点曜日のweeklyインデックス（最初のコマ）
+    const startWiArr = weekly.filter(w=>w.di===startDi2);
+    const startWi = startWiArr.length>0 ? weekly.indexOf(startWiArr[0]) : 0;
 
     let offset = 0;
+    const startMon2 = new Date(startMon);
+    const weekDiff = Math.round((getMon(cellDate)-startMon2)/(7*24*3600*1000));
+
     let counting = false;
-    // weekDiff週分 × weekly のコマを順番に数える
-    for(let w=0; w<=weekDiff; w++){
+    outer:
+    for(let w=0; w<=weekDiff+1; w++){
       for(let wi=0; wi<weekly.length; wi++){
-        const {di,p} = weekly[wi];
-        const d = new Date(startMon); d.setDate(startMon.getDate()+w*7+di);
-        const ds2 = iso(d);
+        const {di,p:p3} = weekly[wi];
+        const d = new Date(startMon2); d.setDate(startMon2.getDate()+w*7+di);
+        const ds3 = iso(d);
 
         // 起点コマで counting 開始
-        if(ds2===startDs && di===startDi && p===startP) counting=true;
+        if(!counting && ds3===startDs && di===startDi2) counting=true;
         if(!counting) continue;
 
         // 対象コマに到達したら終了
-        if(ds2===cellDs && di===cellDi && p===cellPpN) break;
+        if(ds3===cellDs && di===cellDi && p3===cellPpN) break outer;
         offset++;
       }
-      // 対象コマの週まで来たら終了
-      if(w===weekDiff) break;
     }
 
     const idx = Math.min(startIdx + offset, S.lessonPlan.length-1);
     return {unit:S.lessonPlan[idx], idx};
   }catch(e){
-    console.error('getCurrentUnit error:', e);
-    return {unit:S.lessonPlan[0], idx:0};
+    console.error('getCurrentUnit error:',e);
+    return S.lessonPlan.length>0?{unit:S.lessonPlan[0],idx:0}:null;
   }
 }
 
