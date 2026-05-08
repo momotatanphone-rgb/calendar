@@ -704,6 +704,7 @@ let _saveTimer = null;
 function autoSave(){
   if(_saveTimer) clearTimeout(_saveTimer);
   _saveTimer = setTimeout(saveState, 500);
+  driveAutoSave(); // Driveにも自動保存
 }
 
 // 定期保存（10秒ごと）- 確実に保存するためのバックアップ手段
@@ -1049,7 +1050,7 @@ function saveCM(){
       // 次の授業インデックス
       let nxt=Math.min(selIdx+1,(S.lessonPlan.length||1)-1);
 
-      // 今週の同クラスの後続コマに順番通り自動入力
+      // 今週の同クラス・同教科の後続コマに順番通り自動入力
       if(_lastDates&&Array.isArray(_lastDates)&&cls){
         let found=false;
         for(let di=0;di<_lastDates.length;di++){
@@ -1060,7 +1061,8 @@ function saveCM(){
             if(ck2===ck){found=true;continue;}
             if(!found) continue;
             const d2=getCellData(DK[di],p2,ds2);
-            if(d2&&d2.cls===cls){
+            // 同クラス かつ 同教科 のコマのみ
+            if(d2&&d2.cls===cls&&d2.subj===subj){
               S.lessonCellMap[ck2]=Math.min(nxt,(S.lessonPlan.length||1)-1);
               nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
             }
@@ -1069,21 +1071,22 @@ function saveCM(){
       }
 
       // 次週〜16週先の同じ曜日・同じ時限のコマに順番通り自動入力
-      if(cls&&_dk&&_pp){
+      if(cls&&subj&&_dk&&_pp){
         const baseDate=new Date(_ds);
-        // 基本時間割でこの曜・時限がこのクラスか確認
         const ttData=S.tt[_dk+'-'+String(_pp)];
         const ttCls=ttData?ttData.cls:'';
+        const ttSubj=ttData?ttData.subj:'';
         for(let w=1;w<=16;w++){
           const futureDate=new Date(baseDate);
           futureDate.setDate(baseDate.getDate()+w*7);
           const fds=iso(futureDate);
           const fck=fds+'-'+_dk+'-'+String(_pp);
-          // overrideがあればそちらを優先、なければttを見る
           const ovKey=fds+'-'+_dk+'-'+String(_pp);
           const ovData=S.overrides[ovKey];
           const cellCls=ovData!==undefined?(ovData?ovData.cls:''):ttCls;
-          if(cellCls===cls){
+          const cellSubj=ovData!==undefined?(ovData?ovData.subj:''):ttSubj;
+          // 同クラス かつ 同教科 のコマのみ
+          if(cellCls===cls&&cellSubj===subj){
             S.lessonCellMap[fck]=Math.min(nxt,(S.lessonPlan.length||1)-1);
             nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
           }
@@ -2354,6 +2357,74 @@ async function gcalCompleteTask(taskId){
       );
     }catch(e){}
   }
+}
+
+
+// ── Googleドライブ自動同期 ──
+let _driveAutoSaveTimer = null;
+let _driveLastModified = null; // Driveの最終更新時刻
+const DRIVE_AUTO_INTERVAL = 30000; // 30秒ごとにチェック
+
+// データ変更時に自動でDriveに保存（デバウンス10秒）
+function driveAutoSave(){
+  if(!_gcalToken) return;
+  if(_driveAutoSaveTimer) clearTimeout(_driveAutoSaveTimer);
+  _driveAutoSaveTimer = setTimeout(async ()=>{
+    try{
+      await driveBackupSave();
+      console.log('Drive auto-saved');
+    }catch(e){ console.warn('Drive auto-save error:', e); }
+  }, 10000);
+}
+
+// 起動時・定期的にDriveの更新を確認して自動読み込み
+async function driveAutoLoad(){
+  if(!_gcalToken) return;
+  try{
+    const fileId = await driveFindFile();
+    if(!fileId) return;
+
+    // ファイルのメタデータを取得（更新時刻のみ）
+    const metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=modifiedTime`,
+      {headers:{Authorization:`Bearer ${_gcalToken}`}}
+    );
+    const meta = await metaRes.json();
+    const driveTime = new Date(meta.modifiedTime).getTime();
+    const localTime = parseInt(localStorage.getItem('jugyo_drive_saved_at')||'0');
+
+    // Driveの方が新しければ自動読み込み
+    if(driveTime > localTime + 5000){ // 5秒の余裕
+      const fileRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        {headers:{Authorization:`Bearer ${_gcalToken}`}}
+      );
+      const loaded = await fileRes.json();
+      Object.keys(loaded).forEach(k=>{ S[k]=loaded[k]; });
+      saveState();
+      localStorage.setItem('jugyo_drive_saved_at', driveTime.toString());
+      renderWeek();
+      if(typeof renderSettings==='function') renderSettings();
+      console.log('Drive auto-loaded');
+
+      // 同期インジケーター更新
+      gcalUpdateSyncBadge('ok');
+      setTimeout(()=>{ if(_gcalAutoSync) gcalUpdateSyncBadge(true); }, 3000);
+    }
+  }catch(e){ console.warn('Drive auto-load error:', e); }
+}
+
+// driveBackupSave 後に保存時刻を記録
+const _origDriveBackupSave = driveBackupSave;
+async function driveBackupSave(){
+  await _origDriveBackupSave();
+  localStorage.setItem('jugyo_drive_saved_at', Date.now().toString());
+}
+
+// 定期チェック開始（ログイン後に呼ぶ）
+function startDriveAutoSync(){
+  driveAutoLoad(); // 即時チェック
+  setInterval(driveAutoLoad, DRIVE_AUTO_INTERVAL);
 }
 
 // ── リアルタイム同期 ──
