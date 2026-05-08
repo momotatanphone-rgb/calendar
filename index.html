@@ -699,6 +699,11 @@ function saveState(){
   }catch(e){ console.warn('State save error:', e); }
 }
 
+// Drive保存時刻を更新（driveBackupSave成功後に呼ぶ）
+function markDriveSaved(){
+  localStorage.setItem('jugyo_drive_saved_at', Date.now().toString());
+}
+
 // 自動保存（デバウンス付き）
 let _saveTimer = null;
 function autoSave(){
@@ -2373,6 +2378,7 @@ function driveAutoSave(){
     try{
       await driveBackupSave();
       console.log('Drive auto-saved');
+    markDriveSaved();
     }catch(e){ console.warn('Drive auto-save error:', e); }
   }, 10000);
 }
@@ -2400,12 +2406,22 @@ async function driveAutoLoad(){
         {headers:{Authorization:`Bearer ${_gcalToken}`}}
       );
       const loaded = await fileRes.json();
-      Object.keys(loaded).forEach(k=>{ S[k]=loaded[k]; });
+      // 全データをマージ（新キーはデフォルト値でフォールバック）
+      const merged = Object.assign({}, S_DEFAULT, loaded);
+      if(!merged.lessonCellMap) merged.lessonCellMap={};
+      if(!merged.classList) merged.classList=['3-2','3-3','3-4','3-5'];
+      if(!merged.testEvents) merged.testEvents=[];
+      if(!merged.schedules) merged.schedules={};
+      if(!merged.lessonPlan) merged.lessonPlan=[];
+      Object.keys(merged).forEach(k=>{ S[k]=merged[k]; });
       saveState();
       localStorage.setItem('jugyo_drive_saved_at', driveTime.toString());
       renderWeek();
       if(typeof renderSettings==='function') renderSettings();
       console.log('Drive auto-loaded');
+      // 同期完了を画面に表示
+      const syncEl=document.getElementById('drive-sync-status');
+      if(syncEl){ syncEl.textContent='✓ Driveから最新データを読み込みました'; setTimeout(()=>{syncEl.textContent='';},5000); }
 
       // 同期インジケーター更新
       gcalUpdateSyncBadge('ok');
@@ -2414,12 +2430,7 @@ async function driveAutoLoad(){
   }catch(e){ console.warn('Drive auto-load error:', e); }
 }
 
-// driveBackupSave 後に保存時刻を記録
-const _origDriveBackupSave = driveBackupSave;
-async function driveBackupSave(){
-  await _origDriveBackupSave();
-  localStorage.setItem('jugyo_drive_saved_at', Date.now().toString());
-}
+
 
 // 定期チェック開始（ログイン後に呼ぶ）
 function startDriveAutoSync(){
