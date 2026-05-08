@@ -684,6 +684,8 @@ function loadState(){
       // 新しいキーが古いデータにない場合はデフォルト値を使う
       if(!merged.lessonCellMap) merged.lessonCellMap={};
       if(!merged.classList) merged.classList=['3-2','3-3','3-4','3-5'];
+      if(!merged.mainSubject) merged.mainSubject='理科';
+      if(!merged.mainSubject) merged.mainSubject='理科';
       if(!merged.lessonStart) merged.lessonStart={};
       if(!merged.testEvents) merged.testEvents=[];
       return merged;
@@ -1019,7 +1021,7 @@ function openCM(key,title,isTT,ds,dk2,pp){
     const c=v.includes('__')?v.split('__')[1]:'';
     const lw=document.getElementById('cm-lesson-wrap');
     const ls=document.getElementById('cm-lesson');
-    if(S.lessonPlan&&S.lessonPlan.length>0&&c&&!editIsTT){
+    if(S.lessonPlan&&S.lessonPlan.length>0&&c&&!editIsTT&&(subjClsVal2.split('__')[0]===S.mainSubject||!subjClsVal2)){
       lw.style.display='block';
       const cur=getCurrentUnit(c,_ds,_dk,String(_pp));
       const ci=cur?cur.idx:0;
@@ -1055,6 +1057,9 @@ function saveCM(){
       // 次の授業インデックス
       let nxt=Math.min(selIdx+1,(S.lessonPlan.length||1)-1);
 
+      // 授業計画の自動入力はmainSubjectのみ
+      if(subj!==(S.mainSubject||'')) { /* メイン教科以外はスキップ */ }
+      else
       // 今週の同クラス・同教科の後続コマに順番通り自動入力
       if(_lastDates&&Array.isArray(_lastDates)&&cls){
         let found=false;
@@ -1075,8 +1080,8 @@ function saveCM(){
         }
       }
 
-      // 次週〜16週先の同じ曜日・同じ時限のコマに順番通り自動入力
-      if(cls&&subj&&_dk&&_pp){
+      // 次週以降もmainSubjectのみ
+      if(subj===(S.mainSubject||'')&&cls&&subj&&_dk&&_pp){
         const baseDate=new Date(_ds);
         const ttData=S.tt[_dk+'-'+String(_pp)];
         const ttCls=ttData?ttData.cls:'';
@@ -1747,12 +1752,15 @@ function renderPeriods(){
 function renderSubjects(){
   const sl=document.getElementById('slist');sl.innerHTML='';
   const hdr=document.createElement('div');hdr.className='srow';hdr.style.marginBottom='4px';
-  hdr.innerHTML='<span style="font-size:11px;color:var(--txt3)">教科名</span><span></span><span></span>';
+  hdr.innerHTML='<span style="font-size:11px;color:var(--txt3)">教科名</span><span style="font-size:11px;color:var(--teal-m)">授業計画</span><span></span>';
   sl.appendChild(hdr);
   S.subjects.forEach((s,i)=>{
     const row=document.createElement('div');row.className='srow';
     const c=COLS[s.ci%COLS.length];
-    row.innerHTML=`<input type="text" value="${s.name}" onchange="S.subjects[${i}].name=this.value"><button class="cdot" style="background:${c.b}" onclick="cycleC(${i})"></button><button class="dbtn" onclick="delSubj(${i})">×</button>`;
+    const isMain = S.mainSubject===s.name;
+    row.innerHTML=`<input type="text" value="${s.name}" onchange="S.subjects[${i}].name=this.value">
+      <button onclick="setMainSubject('${s.name}')" style="font-size:11px;padding:3px 8px;border-radius:99px;border:0.5px solid ${isMain?'var(--teal)':'var(--border2)'};background:${isMain?'var(--teal-l)':'none'};color:${isMain?'var(--teal-m)':'var(--txt3)'};cursor:pointer;white-space:nowrap">${isMain?'✓ メイン':'設定'}</button>
+      <button class="dbtn" onclick="delSubj(${i})">×</button>`;
     sl.appendChild(row);
   });
 }
@@ -1797,6 +1805,11 @@ function deleteClassItem(i){
   autoSave();
 }
 
+function setMainSubject(name){
+  S.mainSubject=name;
+  renderSubjects();
+  autoSave();
+}
 function cycleC(i){S.subjects[i].ci=(S.subjects[i].ci+1)%COLS.length;renderSubjects();renderTT();}
 function addSubj(){S.subjects.push({name:'新教科',classes:'',ci:S.subjects.length%COLS.length});renderSubjects();autoSave();}
 function delSubj(i){S.subjects.splice(i,1);renderSubjects();renderTT();autoSave();}
@@ -2410,6 +2423,8 @@ async function driveAutoLoad(){
       const merged = Object.assign({}, S_DEFAULT, loaded);
       if(!merged.lessonCellMap) merged.lessonCellMap={};
       if(!merged.classList) merged.classList=['3-2','3-3','3-4','3-5'];
+      if(!merged.mainSubject) merged.mainSubject='理科';
+      if(!merged.mainSubject) merged.mainSubject='理科';
       if(!merged.testEvents) merged.testEvents=[];
       if(!merged.schedules) merged.schedules={};
       if(!merged.lessonPlan) merged.lessonPlan=[];
