@@ -484,7 +484,9 @@ canvas{display:block}
     <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">データはブラウザに自動保存されます。Driveに保存すると他の端末からも使えます。</div>
     <div id="drive-backup-status" style="font-size:11px;color:var(--teal-m);margin-bottom:6px"></div>
     <div id="localstorage-status" style="font-size:11px;color:var(--teal-m);margin-bottom:6px"></div>
+    <div id="drive-sync-status" style="font-size:11px;color:var(--teal-m);min-height:14px;margin-bottom:4px"></div>
     <div id="backup-history" class="backup-history" style="display:none"></div>
+    <div id="plist" style="display:none"></div>
   </div>
 
   <div class="sec">
@@ -507,8 +509,10 @@ canvas{display:block}
     <select id="cm-subj-cls"></select>
     <div id="cm-lesson-wrap" style="display:none;margin-top:10px">
       <label>授業内容</label>
-      <select id="cm-lesson"></select>
-      <div style="margin-top:4px;font-size:11px;color:var(--txt3)">選んで保存すると次回から次の内容が表示されます</div>
+      <select id="cm-lesson" onchange="syncLessonInput()" style="margin-bottom:6px"></select>
+      <textarea id="cm-lesson-text" placeholder="または直接入力・メモ（例: 植物の細胞のつくり）"
+        style="width:100%;font-size:13px;padding:7px 9px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none;resize:vertical;min-height:60px;font-family:inherit"></textarea>
+      <div style="margin-top:4px;font-size:11px;color:var(--txt3)">リストから選ぶか、直接入力できます</div>
     </div>
     <label>教室</label>
     <input type="text" id="cm-room" placeholder="例: 理科室"/>
@@ -672,6 +676,8 @@ const S_DEFAULT = {
   lessonStart:{},
   lessonCellMap:{},
   testEvents:[],
+  classList:['3-2','3-3','3-4','3-5'],
+  mainSubject:'理科',
 };
 
 // localStorageから読み込み、なければデフォルト値を使用
@@ -684,7 +690,6 @@ function loadState(){
       // 新しいキーが古いデータにない場合はデフォルト値を使う
       if(!merged.lessonCellMap) merged.lessonCellMap={};
       if(!merged.classList) merged.classList=['3-2','3-3','3-4','3-5'];
-      if(!merged.mainSubject) merged.mainSubject='理科';
       if(!merged.mainSubject) merged.mainSubject='理科';
       if(!merged.lessonStart) merged.lessonStart={};
       if(!merged.testEvents) merged.testEvents=[];
@@ -987,10 +992,19 @@ function openCM(key,title,isTT,ds,dk2,pp){
   const currentVal=currentSubj&&currentCls?currentSubj+'__'+currentCls:'';
   let opts='<option value="">-- 授業なし --</option>';
   S.subjects.forEach(s=>{
-    getUniqueClasses().forEach(c=>{
-      const val=s.name+'__'+c;
-      opts+=`<option value="${val}"${val===currentVal?' selected':''}>${s.name} ${c}</option>`;
-    });
+    const isMain=(s.name===(S.mainSubject||''));
+    if(isMain){
+      // メイン教科はクラスあり
+      getUniqueClasses().forEach(c=>{
+        const val=s.name+'__'+c;
+        opts+=`<option value="${val}"${val===currentVal?' selected':''}>${s.name} ${c}</option>`;
+      });
+    } else {
+      // メイン以外はクラスなし
+      const val=s.name+'__';
+      const selected=currentSubj===s.name?' selected':'';
+      opts+=`<option value="${val}"${selected}>${s.name}</option>`;
+    }
   });
   sel.innerHTML=opts;
   document.getElementById('cm-room').value=data?.room||'';
@@ -1002,7 +1016,9 @@ function openCM(key,title,isTT,ds,dk2,pp){
   const cls = subjClsVal2.includes('__')?subjClsVal2.split('__')[1]:(data?.cls||'');
   const lessonWrap = document.getElementById('cm-lesson-wrap');
   const lessonSel = document.getElementById('cm-lesson');
-  if(S.lessonPlan && S.lessonPlan.length>0 && !isTT){
+  // メイン教科のみ授業内容を表示
+  const openedSubj=currentSubj||(data?.subj||'');
+  if(S.lessonPlan && S.lessonPlan.length>0 && !isTT && openedSubj===(S.mainSubject||'')){
     lessonWrap.style.display='block';
     const cur2 = cls ? getCurrentUnit(cls, ds, dk2, String(pp)) : null;
     const curIdx = cur2 ? cur2.idx : 0;
@@ -1019,17 +1035,33 @@ function openCM(key,title,isTT,ds,dk2,pp){
   document.getElementById('cm-subj-cls').onchange=function(){
     const v=this.value;
     const c=v.includes('__')?v.split('__')[1]:'';
+    const s3=v.split('__')[0];
     const lw=document.getElementById('cm-lesson-wrap');
     const ls=document.getElementById('cm-lesson');
-    if(S.lessonPlan&&S.lessonPlan.length>0&&c&&!editIsTT&&(subjClsVal2.split('__')[0]===S.mainSubject||!subjClsVal2)){
+    if(S.lessonPlan&&S.lessonPlan.length>0&&!editIsTT&&s3===(S.mainSubject||'')){
       lw.style.display='block';
       const cur=getCurrentUnit(c,_ds,_dk,String(_pp));
       const ci=cur?cur.idx:0;
       ls.innerHTML='<option value="">-- 授業内容を選択 --</option>'+S.lessonPlan.map((u,i)=>
         `<option value="${i}"${i===ci?' selected':''}>${'第'+(i+1)+'時 '+(u.content||'（未設定）')}</option>`
       ).join('');
-    } else { lw.style.display='none'; }
+      syncLessonInput();
+    } else { lw.style.display='none'; if(document.getElementById('cm-lesson-text')) document.getElementById('cm-lesson-text').value=''; }
   };
+  // 授業内容テキスト入力を現在の内容で初期化
+  const ltInput=document.getElementById('cm-lesson-text');
+  if(ltInput){
+    if(!isTT&&_ds&&_dk&&_pp){
+      const ck0=_ds+'-'+_dk+'-'+String(_pp);
+      if(!S.lessonCellMap) S.lessonCellMap={};
+      if(S.lessonCellMap[ck0]!==undefined){
+        const idx0=S.lessonCellMap[ck0];
+        if(typeof idx0==='string'&&isNaN(idx0)) ltInput.value=idx0;
+        else if(S.lessonPlan[idx0]) ltInput.value=S.lessonPlan[idx0].content||'';
+        else ltInput.value='';
+      } else { ltInput.value=''; }
+    } else { ltInput.value=''; }
+  }
   document.getElementById('cls-modal').classList.add('on');
   }catch(e){ console.error('openCM error:',e); alert('エラー: '+e.message); }
 }
@@ -1045,64 +1077,71 @@ function saveCM(){
 
   // 授業内容をコマに保存
   const lessonSel=document.getElementById('cm-lesson');
-  if(lessonSel&&document.getElementById('cm-lesson-wrap').style.display!=='none'&&lessonSel.value!==''&&!editIsTT&&_ds&&_dk&&_pp){
-    const selIdx=parseInt(lessonSel.value);
-    if(!isNaN(selIdx)){
-      if(!S.lessonCellMap) S.lessonCellMap={};
+  const lessonTextEl=document.getElementById('cm-lesson-text');
+  const lessonWrapEl=document.getElementById('cm-lesson-wrap');
+  if(lessonSel&&lessonWrapEl&&lessonWrapEl.style.display!=='none'&&!editIsTT&&_ds&&_dk&&_pp){
+    const textVal=(lessonTextEl?.value||'').trim();
+    const selVal=lessonSel.value;
+    if(!S.lessonCellMap) S.lessonCellMap={};
+    const ck=_ds+'-'+_dk+'-'+String(_pp);
 
-      // このコマを保存
-      const ck=_ds+'-'+_dk+'-'+String(_pp);
-      S.lessonCellMap[ck]=selIdx;
+    // 保存する値を決定（テキスト優先→ドロップダウン）
+    let saveVal=null;
+    let selIdx=-1;
+    if(textVal){
+      // 授業計画に一致するものがあればインデックスで保存、なければ文字列
+      const mi=S.lessonPlan.findIndex(u=>u.content===textVal);
+      saveVal = mi>=0 ? mi : textVal;
+      selIdx = mi>=0 ? mi : -1;
+    } else if(selVal!==''){
+      selIdx=parseInt(selVal);
+      saveVal=selIdx;
+    }
 
-      // 次の授業インデックス
-      let nxt=Math.min(selIdx+1,(S.lessonPlan.length||1)-1);
+    if(saveVal!==null){
+      S.lessonCellMap[ck]=saveVal;
 
-      // 授業計画の自動入力はmainSubjectのみ
-      if(subj!==(S.mainSubject||'')) { /* メイン教科以外はスキップ */ }
-      else
-      // 今週の同クラス・同教科の後続コマに順番通り自動入力
-      if(_lastDates&&Array.isArray(_lastDates)&&cls){
-        let found=false;
-        for(let di=0;di<_lastDates.length;di++){
-          const ds2=iso(_lastDates[di]);
-          const maxP=di===0?5:6;
-          for(let p2=1;p2<=maxP;p2++){
-            const ck2=ds2+'-'+DK[di]+'-'+String(p2);
-            if(ck2===ck){found=true;continue;}
-            if(!found) continue;
-            const d2=getCellData(DK[di],p2,ds2);
-            // 同クラス かつ 同教科 のコマのみ
-            if(d2&&d2.cls===cls&&d2.subj===subj){
-              S.lessonCellMap[ck2]=Math.min(nxt,(S.lessonPlan.length||1)-1);
-              nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
+      // メイン教科のみ次のコマに自動入力
+      if(subj===(S.mainSubject||'')){
+        let nxt=selIdx>=0 ? Math.min(selIdx+1,(S.lessonPlan.length||1)-1) : null;
+        if(nxt!==null){
+          // 今週の後続コマ
+          if(_lastDates&&Array.isArray(_lastDates)&&cls){
+            let found=false;
+            for(let di=0;di<_lastDates.length;di++){
+              const ds2=iso(_lastDates[di]); const maxP=di===0?5:6;
+              for(let p2=1;p2<=maxP;p2++){
+                const ck2=ds2+'-'+DK[di]+'-'+String(p2);
+                if(ck2===ck){found=true;continue;}
+                if(!found) continue;
+                const d2=getCellData(DK[di],p2,ds2);
+                if(d2&&d2.cls===cls&&d2.subj===subj){
+                  S.lessonCellMap[ck2]=Math.min(nxt,(S.lessonPlan.length||1)-1);
+                  nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
+                }
+              }
+            }
+          }
+          // 次週〜16週先
+          if(cls&&_dk&&_pp){
+            const baseDate=new Date(_ds);
+            const ttData=S.tt[_dk+'-'+String(_pp)];
+            for(let w=1;w<=16;w++){
+              const futureDate=new Date(baseDate);
+              futureDate.setDate(baseDate.getDate()+w*7);
+              const fds=iso(futureDate);
+              const fck=fds+'-'+_dk+'-'+String(_pp);
+              const ovData=S.overrides[fds+'-'+_dk+'-'+String(_pp)];
+              const cellCls=ovData!==undefined?(ovData?ovData.cls:''):(ttData?ttData.cls:'');
+              const cellSubj=ovData!==undefined?(ovData?ovData.subj:''):(ttData?ttData.subj:'');
+              if(cellCls===cls&&cellSubj===subj){
+                S.lessonCellMap[fck]=Math.min(nxt,(S.lessonPlan.length||1)-1);
+                nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
+              }
             }
           }
         }
       }
-
-      // 次週以降もmainSubjectのみ
-      if(subj===(S.mainSubject||'')&&cls&&subj&&_dk&&_pp){
-        const baseDate=new Date(_ds);
-        const ttData=S.tt[_dk+'-'+String(_pp)];
-        const ttCls=ttData?ttData.cls:'';
-        const ttSubj=ttData?ttData.subj:'';
-        for(let w=1;w<=16;w++){
-          const futureDate=new Date(baseDate);
-          futureDate.setDate(baseDate.getDate()+w*7);
-          const fds=iso(futureDate);
-          const fck=fds+'-'+_dk+'-'+String(_pp);
-          const ovKey=fds+'-'+_dk+'-'+String(_pp);
-          const ovData=S.overrides[ovKey];
-          const cellCls=ovData!==undefined?(ovData?ovData.cls:''):ttCls;
-          const cellSubj=ovData!==undefined?(ovData?ovData.subj:''):ttSubj;
-          // 同クラス かつ 同教科 のコマのみ
-          if(cellCls===cls&&cellSubj===subj){
-            S.lessonCellMap[fck]=Math.min(nxt,(S.lessonPlan.length||1)-1);
-            nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
-          }
-        }
-      }
-
       renderPlanList();
     }
   }
@@ -1742,7 +1781,7 @@ function renderTT(){
   }
 }
 function renderPeriods(){
-  const pl=document.getElementById('plist');pl.innerHTML='';
+  const pl=document.getElementById('plist');if(!pl)return;pl.innerHTML='';
   S.periods.forEach((p,i)=>{
     const row=document.createElement('div');row.className='prow';
     row.innerHTML=`<div class="pnum">${i+1}</div><input type="time" value="${p.s}" onchange="S.periods[${i}].s=this.value;renderTT()"><input type="time" value="${p.e}" onchange="S.periods[${i}].e=this.value">`;
@@ -1809,6 +1848,18 @@ function setMainSubject(name){
   S.mainSubject=name;
   renderSubjects();
   autoSave();
+}
+
+function syncLessonInput(){
+  const sel=document.getElementById('cm-lesson');
+  const inp=document.getElementById('cm-lesson-text');
+  if(!sel||!inp) return;
+  const idx=parseInt(sel.value);
+  if(!isNaN(idx)&&S.lessonPlan[idx]){
+    inp.value=S.lessonPlan[idx].content||'';
+  } else if(sel.value===''){
+    inp.value='';
+  }
 }
 function cycleC(i){S.subjects[i].ci=(S.subjects[i].ci+1)%COLS.length;renderSubjects();renderTT();}
 function addSubj(){S.subjects.push({name:'新教科',classes:'',ci:S.subjects.length%COLS.length});renderSubjects();autoSave();}
@@ -2424,7 +2475,6 @@ async function driveAutoLoad(){
       if(!merged.lessonCellMap) merged.lessonCellMap={};
       if(!merged.classList) merged.classList=['3-2','3-3','3-4','3-5'];
       if(!merged.mainSubject) merged.mainSubject='理科';
-      if(!merged.mainSubject) merged.mainSubject='理科';
       if(!merged.testEvents) merged.testEvents=[];
       if(!merged.schedules) merged.schedules={};
       if(!merged.lessonPlan) merged.lessonPlan=[];
@@ -2589,11 +2639,16 @@ function getUniqueClasses(){
 function getCurrentUnit(cls, cellDs, cellDk, cellPp){
   if(!S.lessonPlan||S.lessonPlan.length===0) return null;
   if(!S.lessonCellMap) S.lessonCellMap={};
-  if(!cellDs||!cellDk||cellPp===undefined||cellPp===null) return {unit:S.lessonPlan[0],idx:0};
+  if(!cellDs||!cellDk||cellPp===undefined) return {unit:S.lessonPlan[0],idx:0};
   const key=cellDs+'-'+cellDk+'-'+String(cellPp);
   if(S.lessonCellMap[key]!==undefined){
-    const idx=Math.min(Number(S.lessonCellMap[key]),S.lessonPlan.length-1);
-    return {unit:S.lessonPlan[idx],idx:idx};
+    const val=S.lessonCellMap[key];
+    // 文字列で直接保存されている場合
+    if(typeof val==='string'&&isNaN(Number(val))){
+      return {unit:{content:val},idx:-1};
+    }
+    const idx=Math.min(Number(val),S.lessonPlan.length-1);
+    return {unit:S.lessonPlan[idx],idx};
   }
   return {unit:S.lessonPlan[0],idx:0};
 }
