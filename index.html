@@ -507,12 +507,19 @@ canvas{display:block}
     <div id="cm-ov-note" style="font-size:12px;color:var(--amber);background:var(--amber-l);padding:6px 10px;border-radius:var(--r);margin-bottom:4px;display:none">この日だけ変更します（基本時間割は変わりません）。</div>
     <label>授業</label>
     <select id="cm-subj-cls"></select>
+    <!-- メイン教科：授業計画から選ぶ + 自由入力 -->
     <div id="cm-lesson-wrap" style="display:none;margin-top:10px">
       <label>授業内容</label>
       <select id="cm-lesson" onchange="syncLessonInput()" style="margin-bottom:6px"></select>
       <textarea id="cm-lesson-text" placeholder="または直接入力・メモ（例: 植物の細胞のつくり）"
         style="width:100%;font-size:13px;padding:7px 9px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none;resize:vertical;min-height:60px;font-family:inherit"></textarea>
       <div style="margin-top:4px;font-size:11px;color:var(--txt3)">リストから選ぶか、直接入力できます</div>
+    </div>
+    <!-- メイン以外：自由記述のみ -->
+    <div id="cm-sub-memo-wrap" style="display:none;margin-top:10px">
+      <label>授業内容・メモ</label>
+      <textarea id="cm-sub-memo" placeholder="授業内容を自由に入力（例: 2学期の目標、話し合い活動）"
+        style="width:100%;font-size:13px;padding:7px 9px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none;resize:vertical;min-height:60px;font-family:inherit"></textarea>
     </div>
     <label>教室</label>
     <input type="text" id="cm-room" placeholder="例: 理科室"/>
@@ -834,7 +841,7 @@ function renderWeek(){
           </div>
         `;
         // 授業内容を表示
-        if(S.lessonPlan && S.lessonPlan.length>0){
+        if(data.subj===(S.mainSubject||'')&&S.lessonPlan&&S.lessonPlan.length>0){
           const cur = getCurrentUnit(data.cls, ds, DK[i], String(p+1));
           if(cur){
             const unitDiv = document.createElement('div');
@@ -843,6 +850,12 @@ function renderWeek(){
             unitDiv.textContent = `第${cur.idx+1}時${cur.unit.content?' '+cur.unit.content:''}`;
             chip.appendChild(unitDiv);
           }
+        } else if(data.subMemo){
+          const unitDiv = document.createElement('div');
+          unitDiv.className = 'chip-unit';
+          unitDiv.style.color = c.fg;
+          unitDiv.textContent = data.subMemo;
+          chip.appendChild(unitDiv);
         }
         cell.appendChild(chip);
         if(S.drawings[`draw-${DK[i]}-${p+1}-${ds}`]){
@@ -1016,10 +1029,13 @@ function openCM(key,title,isTT,ds,dk2,pp){
   const cls = subjClsVal2.includes('__')?subjClsVal2.split('__')[1]:(data?.cls||'');
   const lessonWrap = document.getElementById('cm-lesson-wrap');
   const lessonSel = document.getElementById('cm-lesson');
-  // メイン教科のみ授業内容を表示
+  // 教科によって表示切替
   const openedSubj=currentSubj||(data?.subj||'');
+  const subMemoWrap=document.getElementById('cm-sub-memo-wrap');
+  const subMemoEl=document.getElementById('cm-sub-memo');
   if(S.lessonPlan && S.lessonPlan.length>0 && !isTT && openedSubj===(S.mainSubject||'')){
     lessonWrap.style.display='block';
+    if(subMemoWrap) subMemoWrap.style.display='none';
     const cur2 = cls ? getCurrentUnit(cls, ds, dk2, String(pp)) : null;
     const curIdx = cur2 ? cur2.idx : 0;
     lessonSel.innerHTML = '<option value="">-- 授業内容を選択 --</option>' + S.lessonPlan.map((u,i)=>{
@@ -1029,6 +1045,13 @@ function openCM(key,title,isTT,ds,dk2,pp){
   } else {
     lessonWrap.style.display='none';
     lessonSel.innerHTML='';
+    // メイン以外: 自由記述欄を表示
+    if(subMemoWrap&&!isTT){
+      subMemoWrap.style.display='block';
+      if(subMemoEl) subMemoEl.value=data?.subMemo||'';
+    } else if(subMemoWrap){
+      subMemoWrap.style.display='none';
+    }
   }
 
   // 授業選択変更時に授業内容ドロップダウンを更新
@@ -1046,8 +1069,18 @@ function openCM(key,title,isTT,ds,dk2,pp){
         `<option value="${i}"${i===ci?' selected':''}>${'第'+(i+1)+'時 '+(u.content||'（未設定）')}</option>`
       ).join('');
       syncLessonInput();
-    } else { lw.style.display='none'; if(document.getElementById('cm-lesson-text')) document.getElementById('cm-lesson-text').value=''; }
+    } else {
+      lw.style.display='none';
+      if(document.getElementById('cm-lesson-text')) document.getElementById('cm-lesson-text').value='';
+      // メイン以外は自由記述欄を表示
+      const smw=document.getElementById('cm-sub-memo-wrap');
+      if(smw&&!editIsTT) smw.style.display='block';
+      else if(smw) smw.style.display='none';
+    }
   };
+  // cm-sub-memo 初期化
+  const smEl=document.getElementById('cm-sub-memo');
+  if(smEl) smEl.value=data?.subMemo||'';
   // 授業内容テキスト入力を現在の内容で初期化
   const ltInput=document.getElementById('cm-lesson-text');
   if(ltInput){
@@ -1071,7 +1104,8 @@ function saveCM(){
   const subj=subjClsVal3.includes('__')?subjClsVal3.split('__')[0]:'';
   const cls=subjClsVal3.includes('__')?subjClsVal3.split('__')[1]:'';
   // ※ autoSaveは末尾で呼ぶ
-  const val=subj?{subj,cls,room:document.getElementById('cm-room').value,memo:document.getElementById('cm-memo').value}:null;
+  const subMemoVal=(document.getElementById('cm-sub-memo')?.value||'').trim();
+  const val=subj?{subj,cls,room:document.getElementById('cm-room').value,memo:document.getElementById('cm-memo').value,subMemo:subMemoVal}:null;
   if(editIsTT){if(val)S.tt[editKey]=val;else delete S.tt[editKey];}
   else{S.overrides[`${_ds}-${_dk}-${_pp}`]=val;}
 
@@ -2501,6 +2535,89 @@ async function driveAutoLoad(){
 function startDriveAutoSync(){
   driveAutoLoad(); // 即時チェック
   setInterval(driveAutoLoad, DRIVE_AUTO_INTERVAL);
+}
+
+
+// ── 写真のGoogleドライブ管理 ──
+const DRIVE_PHOTO_FOLDER = 'jugyo_kanri_photos';
+let _drivePhotoFolderId = null;
+
+// 写真フォルダを取得または作成
+async function getDrivePhotoFolder(){
+  if(_drivePhotoFolderId) return _drivePhotoFolderId;
+  try{
+    // 既存フォルダを検索
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=name='${DRIVE_PHOTO_FOLDER}'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id)`,
+      {headers:{Authorization:`Bearer ${_gcalToken}`}}
+    );
+    const data = await res.json();
+    if(data.files&&data.files.length>0){
+      _drivePhotoFolderId = data.files[0].id;
+      return _drivePhotoFolderId;
+    }
+    // フォルダ作成
+    const createRes = await fetch(
+      'https://www.googleapis.com/drive/v3/files',
+      {method:'POST',
+       headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
+       body:JSON.stringify({name:DRIVE_PHOTO_FOLDER,mimeType:'application/vnd.google-apps.folder'})}
+    );
+    const folder = await createRes.json();
+    _drivePhotoFolderId = folder.id;
+    return _drivePhotoFolderId;
+  }catch(e){ console.error('Folder error:',e); return null; }
+}
+
+// Base64画像をDriveにアップロード → fileIdを返す
+async function uploadPhotoToDrive(base64Data, fileName){
+  if(!_gcalToken) return null;
+  try{
+    const folderId = await getDrivePhotoFolder();
+    // Base64→Blob
+    const arr = base64Data.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    const u8 = new Uint8Array(bstr.length);
+    for(let i=0;i<bstr.length;i++) u8[i]=bstr.charCodeAt(i);
+    const blob = new Blob([u8],{type:mime});
+
+    const meta = {name:fileName,parents:folderId?[folderId]:[]};
+    const form = new FormData();
+    form.append('metadata',new Blob([JSON.stringify(meta)],{type:'application/json'}));
+    form.append('file',blob);
+
+    const res = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+      {method:'POST',headers:{Authorization:`Bearer ${_gcalToken}`},body:form}
+    );
+    const ev = await res.json();
+    return ev.id||null;
+  }catch(e){ console.error('Upload error:',e); return null; }
+}
+
+// DriveのfileIdから画像URLを取得（認証付き）
+async function getDrivePhotoUrl(fileId){
+  if(!_gcalToken||!fileId) return null;
+  try{
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      {headers:{Authorization:`Bearer ${_gcalToken}`}}
+    );
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  }catch(e){ console.error('Download error:',e); return null; }
+}
+
+// Driveから写真を削除
+async function deleteDrivePhoto(fileId){
+  if(!_gcalToken||!fileId) return;
+  try{
+    await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}`,
+      {method:'DELETE',headers:{Authorization:`Bearer ${_gcalToken}`}}
+    );
+  }catch(e){ console.error('Delete error:',e); }
 }
 
 // ── リアルタイム同期 ──
