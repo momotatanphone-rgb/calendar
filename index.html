@@ -1980,18 +1980,35 @@ function backupSave(){
   renderBackupHistory();
 }
 function backupLoad(evt){
-  const file=evt.target.files[0];if(!file)return;
+  const file=evt.target.files[0];
+  if(!file){ alert('ファイルが選択されませんでした'); return; }
   const reader=new FileReader();
   reader.onload=e=>{
     try{
-      const loaded=JSON.parse(e.target.result);
+      const text=e.target.result;
+      if(!text||text.trim()===''){ alert('ファイルが空です'); return; }
+      const loaded=JSON.parse(text);
+      if(typeof loaded!=='object'||loaded===null){ alert('正しいバックアップファイルではありません'); return; }
       if(!confirm('現在のデータをすべて上書きして読み込みますか？'))return;
-      Object.keys(loaded).forEach(k=>{S[k]=loaded[k];});
-      renderWeek();renderSettings();saveState();
-      alert('バックアップを読み込みました！');
-    }catch(err){alert('読み込みエラー: '+err.message);}
+      // S_DEFAULTをベースにマージ（欠けているキーも補完）
+      const merged=Object.assign({}, S_DEFAULT, loaded);
+      if(!merged.lessonCellMap) merged.lessonCellMap={};
+      if(!merged.classList) merged.classList=['3-2','3-3','3-4','3-5'];
+      if(!merged.mainSubject) merged.mainSubject='理科';
+      if(!merged.todos) merged.todos=[];
+      if(!merged.testEvents) merged.testEvents=[];
+      Object.keys(merged).forEach(k=>{S[k]=merged[k];});
+      saveState();
+      renderWeek();
+      if(typeof renderSettings==='function') renderSettings();
+      alert('✓ バックアップを読み込みました！');
+    }catch(err){
+      alert('読み込みエラー: '+err.message+'\nファイルが壊れているか、正しいバックアップではない可能性があります。');
+    }
   };
-  reader.readAsText(file);evt.target.value='';
+  reader.onerror=()=>{ alert('ファイルの読み込みに失敗しました'); };
+  reader.readAsText(file);
+  evt.target.value='';
 }
 function renderBackupHistory(){
   const el=document.getElementById('backup-history');if(!el)return;
