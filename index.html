@@ -1603,9 +1603,14 @@ function clearPasteArea(){
   _pastePreviewData = [];
 }
 
-// 時間割ページのDrive読込ボタン → 設定ページへ誘導
+// 時間割ページのDrive読込ボタン → その場で直接読み込み
 function syncFromDrive(){
-  showPg('settings', document.querySelectorAll('.nb')[1]);
+  if(!_gcalToken){
+    // 未ログインならログインを促す
+    gcalToggleAuth();
+    return;
+  }
+  driveBackupLoad();
 }
 
 
@@ -2534,8 +2539,24 @@ function driveAutoSave(){
       console.log('Drive auto-saved');
     markDriveSaved();
     }catch(e){ console.warn('Drive auto-save error:', e); }
-  }, 10000);
+  }, 3000);
 }
+
+// アプリを閉じる・隠れる直前にDriveへ即保存
+let _driveCloseSaved = false;
+async function driveSaveOnClose(){
+  if(!_gcalToken || _driveCloseSaved) return;
+  _driveCloseSaved = true;
+  setTimeout(()=>{ _driveCloseSaved=false; }, 2000);
+  try{
+    // sendBeaconは使えないので通常のfetchで即保存を試みる
+    await driveBackupSave();
+    markDriveSaved();
+  }catch(e){ console.warn('Close save error:', e); }
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='hidden') driveSaveOnClose();
+});
 
 // 起動時・定期的にDriveの更新を確認して自動読み込み
 async function driveAutoLoad(){
