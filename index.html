@@ -3205,18 +3205,26 @@ function driveStatusMsg(msg, color='var(--teal-m)'){
   if(el){ el.textContent=msg; el.style.color=color; }
 }
 
-// ドライブ内のファイルを検索
+// ドライブ内のファイルを検索（常に最新の1件を返す）
 async function driveFindFile(){
-  if(_driveFileId) return _driveFileId;
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=name='${DRIVE_FILE_NAME}'+and+trashed=false&fields=files(id,name,modifiedTime)&spaces=drive`,
-    {headers:{Authorization:`Bearer ${_gcalToken}`}}
-  );
-  const data = await res.json();
-  if(data.files && data.files.length>0){
-    _driveFileId = data.files[0].id;
-    return _driveFileId;
-  }
+  try{
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=name='${DRIVE_FILE_NAME}'+and+trashed=false&orderBy=modifiedTime desc&fields=files(id,name,modifiedTime)&spaces=drive`,
+      {headers:{Authorization:`Bearer ${_gcalToken}`}}
+    );
+    const data = await res.json();
+    if(data.files && data.files.length>0){
+      _driveFileId = data.files[0].id;
+      // 重複ファイルがあれば古い方を削除（最新1件だけ残す）
+      if(data.files.length>1){
+        for(let i=1;i<data.files.length;i++){
+          fetch(`https://www.googleapis.com/drive/v3/files/${data.files[i].id}`,
+            {method:'DELETE',headers:{Authorization:`Bearer ${_gcalToken}`}}).catch(()=>{});
+        }
+      }
+      return _driveFileId;
+    }
+  }catch(e){ console.error('driveFindFile error:', e); }
   return null;
 }
 
@@ -3314,11 +3322,8 @@ async function driveBackupLoad(){
   }
 }
 
-// ページ読み込み時にfileIdをlocalStorageから復元
-try{
-  const saved = localStorage.getItem('jugyo_drive_file_id');
-  if(saved) _driveFileId = saved;
-}catch(e){}
+// fileIdはキャッシュから復元せず、毎回Driveを検索して最新を使う
+// （複数端末で別ファイルが作られるのを防ぐ）
 
 </script>
 </body>
