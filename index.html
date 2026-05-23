@@ -1999,6 +1999,11 @@ function backupLoad(evt){
       if(!merged.testEvents) merged.testEvents=[];
       Object.keys(merged).forEach(k=>{S[k]=merged[k];});
       saveState();
+      // 読み込んだデータをすぐDriveにも反映（古いデータでの上書きを防ぐ）
+      if(_gcalToken){
+        markDriveSaved();
+        driveBackupSave().catch(()=>{});
+      }
       renderWeek();
       if(typeof renderSettings==='function') renderSettings();
       alert('✓ バックアップを読み込みました！');
