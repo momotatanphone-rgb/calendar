@@ -766,7 +766,26 @@ function loadState(){
 function saveState(){
   try{
     localStorage.setItem('jugyo_kanri_data', JSON.stringify(S));
-  }catch(e){ console.warn('State save error:', e); }
+  }catch(e){
+    console.warn('State save error:', e);
+    // 容量超過の可能性 → 写真のBase64を除いて保存を再試行
+    try{
+      const slim = JSON.parse(JSON.stringify(S));
+      if(slim.docs){
+        Object.keys(slim.docs).forEach(ds=>{
+          (slim.docs[ds]||[]).forEach(doc=>{
+            // driveIdがあれば本体imgは消す（Driveから取得可能）
+            if(doc.driveId) doc.img='';
+          });
+        });
+      }
+      // 手書きdrawingsも大きいので、容量超過時は維持を試みる
+      localStorage.setItem('jugyo_kanri_data', JSON.stringify(slim));
+      console.log('Saved slim version (images stored in Drive)');
+    }catch(e2){
+      console.error('Slim save also failed:', e2);
+    }
+  }
 }
 
 // Drive保存時刻を更新（driveBackupSave成功後に呼ぶ）
@@ -1737,23 +1756,58 @@ function handleDocPhoto(evt){
   const file=evt.target.files[0];
   if(!file)return;
   const reader=new FileReader();
-  reader.onload=e=>{
+  reader.onload=async e=>{
     const today=new Date();
     const ds=iso(today);
     if(!S.docs) S.docs={};
     if(!S.docs[ds]) S.docs[ds]=[];
     const now=new Date();
     const name=file.name.replace(/\.[^.]+$/,'')||`書類${S.docs[ds].length+1}`;
-    S.docs[ds].push({
-      img:e.target.result,
+
+    // 画像を縮小してBase64化（localStorage節約）
+    const compressed = await compressImage(e.target.result, 1000, 0.7);
+
+    const docEntry={
       name,
       added:`${p2(now.getHours())}:${p2(now.getMinutes())}`,
-    });
-    evt.target.value=''; // リセット
+      img: compressed, // 縮小版をサムネ・表示用に保持
+    };
+
+    // Driveにもアップロード（ログイン時）
+    if(_gcalToken){
+      try{
+        const fileId = await uploadPhotoToDrive(e.target.result, name+'_'+ds+'_'+Date.now()+'.jpg');
+        if(fileId) docEntry.driveId = fileId;
+      }catch(err){ console.warn('Drive photo upload failed:', err); }
+    }
+
+    S.docs[ds].push(docEntry);
+    evt.target.value='';
+    autoSave();
     renderDocsGrid();
     renderWeekSchedGrid(_lastDates||[]);
+    if(typeof renderDocThumbList==='function') renderDocThumbList();
   };
   reader.readAsDataURL(file);
+}
+
+// 画像を縮小する（最大幅maxW、品質quality）
+function compressImage(dataUrl, maxW, quality){
+  return new Promise((resolve)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width, h=img.height;
+      if(w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
+      const canvas=document.createElement('canvas');
+      canvas.width=w; canvas.height=h;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      try{ resolve(canvas.toDataURL('image/jpeg',quality)); }
+      catch(e){ resolve(dataUrl); }
+    };
+    img.onerror=()=>resolve(dataUrl);
+    img.src=dataUrl;
+  });
 }
 
 function renderDocsGrid(){
@@ -2896,6 +2950,12 @@ function renderDocThumbList(){
         onerror="this.style.background='var(--bg2)';this.style.border='1px dashed var(--border2)'"/>
       <div class="doc-thumb-name">${doc.name||'書類'}</div>
     `;
+    // imgが空でdriveIdがあればDriveから取得
+    if(!src && doc.driveId && _gcalToken){
+      getDrivePhotoUrl(doc.driveId).then(url=>{
+        if(url){ const im=item.querySelector('img'); if(im) im.src=url; }
+      });
+    }
     item.onclick=()=>openDocViewerFromThumb(doc);
     grid.appendChild(item);
   });
@@ -2904,6 +2964,9 @@ function renderDocThumbList(){
 
 function openDocViewerFromThumb(doc){
   document.getElementById('dv-img').src=doc.img||'';
+  if(!doc.img && doc.driveId && _gcalToken){
+    getDrivePhotoUrl(doc.driveId).then(url=>{ if(url) document.getElementById('dv-img').src=url; });
+  }
   document.getElementById('dv-name').textContent=doc.name||'書類';
   document.getElementById('dv-name-input').value=doc.name||'';
   document.getElementById('doc-viewer').dataset.mode='';
