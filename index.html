@@ -347,6 +347,10 @@ canvas{display:block}
     <button class="nb on" onclick="showPg('schedule',this)">📅 時間割</button>
     <button class="nb" onclick="showPg('settings',this)">⚙️ 設定</button>
     <div style="flex:1"></div>
+    <button class="undo-btn" id="undo-btn" onclick="undoAction()" title="戻す"
+      style="font-size:14px;padding:3px 8px;border-radius:99px;border:0.5px solid var(--border2);background:none;cursor:pointer;color:var(--txt2);margin-bottom:2px;opacity:.5" disabled>↶</button>
+    <button class="redo-btn" id="redo-btn" onclick="redoAction()" title="進める"
+      style="font-size:14px;padding:3px 8px;border-radius:99px;border:0.5px solid var(--border2);background:none;cursor:pointer;color:var(--txt2);margin-bottom:2px;opacity:.5" disabled>↷</button>
     <button class="today-badge" onclick="goToday()" style="margin:0 4px 2px">今日</button>
     <button id="gcal-btn" onclick="gcalToggleAuth()"
       style="font-size:11px;padding:3px 8px;border-radius:99px;border:0.5px solid var(--border2);background:none;cursor:pointer;color:var(--txt2);display:flex;align-items:center;gap:3px;margin-bottom:2px">
@@ -797,8 +801,11 @@ function markDriveSaved(){
 let _saveTimer = null;
 function autoSave(){
   if(_saveTimer) clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(saveState, 500);
-  driveAutoSave(); // Driveにも自動保存
+  _saveTimer = setTimeout(()=>{
+    saveState();
+    if(typeof pushUndoSnapshot==='function') pushUndoSnapshot();
+  }, 500);
+  driveAutoSave();
 }
 
 // 定期保存（10秒ごと）- 確実に保存するためのバックアップ手段
@@ -2657,7 +2664,12 @@ async function driveAutoLoad(){
         {headers:{Authorization:`Bearer ${_gcalToken}`}}
       );
       const loaded = await fileRes.json();
-      // 全データをマージ（新キーはデフォルト値でフォールバック）
+
+      // ローカルの写真・手書きを退避（Driveに含まれていない最新のものを残す）
+      const localDocs = JSON.parse(JSON.stringify(S.docs||{}));
+      const localDrawings = JSON.parse(JSON.stringify(S.drawings||{}));
+
+      // 全データをマージ
       const merged = Object.assign({}, S_DEFAULT, loaded);
       if(!merged.lessonCellMap) merged.lessonCellMap={};
       if(!merged.classList) merged.classList=['3-2','3-3','3-4','3-5'];
@@ -2666,17 +2678,29 @@ async function driveAutoLoad(){
       if(!merged.testEvents) merged.testEvents=[];
       if(!merged.schedules) merged.schedules={};
       if(!merged.lessonPlan) merged.lessonPlan=[];
+
+      // ローカルにあってDriveにない写真・手書きをマージ（消えないよう保護）
+      Object.keys(localDocs).forEach(ds=>{
+        if(!merged.docs[ds]) merged.docs[ds] = localDocs[ds];
+        else {
+          // 同じ日付：ローカルの方が件数多ければローカルを優先
+          if((localDocs[ds]||[]).length > (merged.docs[ds]||[]).length){
+            merged.docs[ds] = localDocs[ds];
+          }
+        }
+      });
+      Object.keys(localDrawings).forEach(k=>{
+        if(!merged.drawings[k] && localDrawings[k]) merged.drawings[k] = localDrawings[k];
+      });
+
       Object.keys(merged).forEach(k=>{ S[k]=merged[k]; });
       saveState();
       localStorage.setItem('jugyo_drive_saved_at', driveTime.toString());
       renderWeek();
       if(typeof renderSettings==='function') renderSettings();
-      console.log('Drive auto-loaded');
-      // 同期完了を画面に表示
+      console.log('Drive auto-loaded (local photos preserved)');
       const syncEl=document.getElementById('drive-sync-status');
       if(syncEl){ syncEl.textContent='✓ Driveから最新データを読み込みました'; setTimeout(()=>{syncEl.textContent='';},5000); }
-
-      // 同期インジケーター更新
       gcalUpdateSyncBadge('ok');
       setTimeout(()=>{ if(_gcalAutoSync) gcalUpdateSyncBadge(true); }, 3000);
     }
@@ -2972,6 +2996,80 @@ function openDocViewerFromThumb(doc){
   document.getElementById('doc-viewer').dataset.mode='';
   document.getElementById('doc-viewer').classList.add('on');
 }
+
+
+// ── Undo/Redo ──
+const UNDO_MAX = 30;
+let _undoStack = [];
+let _redoStack = [];
+let _undoSuspended = false; // undo/redo操作中は履歴に積まない
+
+function pushUndoSnapshot(){
+  if(_undoSuspended) return;
+  try{
+    const snapshot = JSON.stringify(S);
+    // 直前と同じなら積まない
+    if(_undoStack.length>0 && _undoStack[_undoStack.length-1]===snapshot) return;
+    _undoStack.push(snapshot);
+    if(_undoStack.length>UNDO_MAX) _undoStack.shift();
+    _redoStack = []; // 新しい操作で redo はクリア
+    updateUndoButtons();
+  }catch(e){ console.warn('Undo snapshot error:', e); }
+}
+
+function undoAction(){
+  if(_undoStack.length<=1) return;
+  _undoSuspended=true;
+  // 現在の状態をredoに積む
+  _redoStack.push(_undoStack.pop());
+  // ひとつ前の状態に戻す
+  const prev = _undoStack[_undoStack.length-1];
+  if(prev){
+    const parsed = JSON.parse(prev);
+    Object.keys(S).forEach(k=>delete S[k]);
+    Object.keys(parsed).forEach(k=>{ S[k]=parsed[k]; });
+    saveState();
+    renderWeek();
+    if(typeof renderSettings==='function' && document.getElementById('pg-settings').classList.contains('on')) renderSettings();
+  }
+  updateUndoButtons();
+  _undoSuspended=false;
+}
+
+function redoAction(){
+  if(_redoStack.length===0) return;
+  _undoSuspended=true;
+  const next = _redoStack.pop();
+  _undoStack.push(next);
+  const parsed = JSON.parse(next);
+  Object.keys(S).forEach(k=>delete S[k]);
+  Object.keys(parsed).forEach(k=>{ S[k]=parsed[k]; });
+  saveState();
+  renderWeek();
+  if(typeof renderSettings==='function' && document.getElementById('pg-settings').classList.contains('on')) renderSettings();
+  updateUndoButtons();
+  _undoSuspended=false;
+}
+
+function updateUndoButtons(){
+  const ub = document.getElementById('undo-btn');
+  const rb = document.getElementById('redo-btn');
+  if(ub){
+    const canUndo = _undoStack.length>1;
+    ub.disabled = !canUndo;
+    ub.style.opacity = canUndo ? '1' : '.4';
+    ub.style.cursor = canUndo ? 'pointer' : 'default';
+  }
+  if(rb){
+    const canRedo = _redoStack.length>0;
+    rb.disabled = !canRedo;
+    rb.style.opacity = canRedo ? '1' : '.4';
+    rb.style.cursor = canRedo ? 'pointer' : 'default';
+  }
+}
+
+// 初期状態を履歴に積む
+setTimeout(()=>{ pushUndoSnapshot(); }, 100);
 
 // ── リアルタイム同期 ──
 let _gcalSyncTimer=null, _gcalAutoSync=false;
