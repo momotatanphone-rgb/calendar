@@ -987,6 +987,13 @@ function renderWeek(){
     btn.onclick=()=>openDraw(dk2,`✏️ 日付メモ: ${fmt(d)}`);
     dmrow.appendChild(btn);
   });
+
+  // 下部パネル・バッジ・同期
+  if(typeof renderCountdowns==='function') renderCountdowns();
+  if(typeof renderCdBadges==='function') renderCdBadges();
+  if(typeof renderTodoList==='function') renderTodoList();
+  if(typeof renderDocThumbList==='function') renderDocThumbList();
+  if(typeof gcalSyncIfActive==='function') gcalSyncIfActive();
 }
 
 function renderMonth(){
@@ -2255,6 +2262,9 @@ function gcalInit(){
       gcalPanel(true);
       gcalFetchWeek();
       gcalStartAutoSync();
+      if(typeof gcalSyncReminders==='function') gcalSyncReminders();
+      if(typeof startDriveAutoSync==='function') startDriveAutoSync();
+      if(typeof syncAndRenderTodos==='function') syncAndRenderTodos();
     }
   });
 }
