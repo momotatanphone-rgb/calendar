@@ -991,8 +991,7 @@ function renderWeek(){
   // 下部パネル・バッジ・同期
   if(typeof renderCountdowns==='function') renderCountdowns();
   if(typeof renderCdBadges==='function') renderCdBadges();
-  if(typeof renderTodoList==='function') renderTodoList();
-  if(typeof renderDocThumbList==='function') renderDocThumbList();
+  // TODO・書類は週切り替えでは再描画しない（重いため）。初回・変更時のみ別途呼ぶ
   if(typeof gcalSyncIfActive==='function') gcalSyncIfActive();
 }
 
@@ -2244,6 +2243,10 @@ function renderLessonCountTable(){
 
 renderWeek();
 
+// 初回のみTODO・書類を描画
+if(typeof renderTodoList==='function') renderTodoList();
+if(typeof renderDocThumbList==='function') renderDocThumbList();
+
 // ── Google Calendar 連携 ──
 const GCAL_CLIENT_ID = '520565701155-hvu77dq023ok22deg5i5ed0hn75ko08m.apps.googleusercontent.com';
 const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/tasks';
@@ -2960,6 +2963,9 @@ function toggleTodoLocal(i){ if(!S.todos||!S.todos[i]) return; S.todos[i].done=!
 function deleteTodoLocal(i){ if(!S.todos) return; S.todos.splice(i,1); renderTodoLocal(); autoSave(); }
 
 // ── 書類サムネイル一覧 ──
+// DriveのオブジェクトURLキャッシュ（メモリリーク防止）
+const _drivePhotoUrlCache = {};
+
 function renderDocThumbList(){
   const el=document.getElementById('doc-thumb-list');
   if(!el) return;
@@ -2978,16 +2984,23 @@ function renderDocThumbList(){
     const item=document.createElement('div');
     item.className='doc-thumb-item';
     item.title=doc.name||'書類';
-    const src=doc.img||'';
+    let src=doc.img||'';
+    // キャッシュ済みのDrive URLがあれば使う
+    if(!src && doc.driveId && _drivePhotoUrlCache[doc.driveId]){
+      src = _drivePhotoUrlCache[doc.driveId];
+    }
     item.innerHTML=`
       <img class="doc-thumb-img" src="${src}" alt="${doc.name||'書類'}" loading="lazy"
         onerror="this.style.background='var(--bg2)';this.style.border='1px dashed var(--border2)'"/>
       <div class="doc-thumb-name">${doc.name||'書類'}</div>
     `;
-    // imgが空でdriveIdがあればDriveから取得
+    // imgが空でキャッシュもなければDriveから取得（1回だけ）
     if(!src && doc.driveId && _gcalToken){
       getDrivePhotoUrl(doc.driveId).then(url=>{
-        if(url){ const im=item.querySelector('img'); if(im) im.src=url; }
+        if(url){
+          _drivePhotoUrlCache[doc.driveId]=url; // キャッシュ
+          const im=item.querySelector('img'); if(im) im.src=url;
+        }
       });
     }
     item.onclick=()=>openDocViewerFromThumb(doc);
