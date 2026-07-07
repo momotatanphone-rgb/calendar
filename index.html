@@ -856,6 +856,7 @@ function setView(v){
 }
 
 function renderWeek(){
+  try{
   const today=new Date();
   const base=getMon(today);
   base.setDate(base.getDate()+wOff*7);
@@ -993,6 +994,10 @@ function renderWeek(){
   if(typeof renderCdBadges==='function') renderCdBadges();
   // TODO・書類は週切り替えでは再描画しない（重いため）。初回・変更時のみ別途呼ぶ
   if(typeof gcalSyncIfActive==='function') gcalSyncIfActive();
+  }catch(e){
+    console.error('renderWeek error:', e);
+    alert('表示エラー: '+e.message);
+  }
 }
 
 function renderMonth(){
