@@ -1898,6 +1898,10 @@ function saveDocName(){
 }
 function deleteDocFromViewer(){
   const dv=document.getElementById('doc-viewer');
+  if(dv.dataset.mode==='thumb'){
+    deleteThumbDoc();
+    return;
+  }
   if(dv.dataset.mode==='sched'){
     const sDs=dv.dataset.schedDs,sIdx=parseInt(dv.dataset.schedIdx),dIdx=parseInt(dv.dataset.docIdx);
     if(S.schedules[sDs]&&S.schedules[sDs][sIdx]&&S.schedules[sDs][sIdx].docs)
@@ -2850,7 +2854,7 @@ async function syncAndRenderTodos(){
     const listId = await getGTasksListId();
     if(!listId){ renderTodoLocal(); return; }
     const res = await fetch(
-      `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?showCompleted=true&showHidden=false&maxResults=50`,
+      `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?showCompleted=false&showHidden=false&maxResults=50`,
       {headers:{Authorization:`Bearer ${_gcalToken}`}}
     );
     const data = await res.json();
@@ -2937,6 +2941,11 @@ async function addTodo(){
 // Google Tasksのチェック切替
 async function toggleTodoGTask(taskId, currentDone){
   if(!_gcalToken) return;
+  // 楽観的更新：チェックしたら即座にリストから消す
+  if(!currentDone){
+    _gTasksCache = _gTasksCache.filter(t=>t.id!==taskId);
+    renderTodoList();
+  }
   try{
     const listId=await getGTasksListId();
     if(!listId) return;
@@ -3015,15 +3024,42 @@ function renderDocThumbList(){
   el.appendChild(grid);
 }
 
+let _thumbDocRef=null; // サムネイルから開いた書類の参照
 function openDocViewerFromThumb(doc){
+  _thumbDocRef=doc;
   document.getElementById('dv-img').src=doc.img||'';
   if(!doc.img && doc.driveId && _gcalToken){
     getDrivePhotoUrl(doc.driveId).then(url=>{ if(url) document.getElementById('dv-img').src=url; });
   }
   document.getElementById('dv-name').textContent=doc.name||'書類';
   document.getElementById('dv-name-input').value=doc.name||'';
-  document.getElementById('doc-viewer').dataset.mode='';
+  document.getElementById('doc-viewer').dataset.mode='thumb';
   document.getElementById('doc-viewer').classList.add('on');
+}
+
+// サムネイルから開いた書類を削除
+function deleteThumbDoc(){
+  if(!_thumbDocRef){ return; }
+  if(!confirm('この書類を削除しますか？')) return;
+  const ds=_thumbDocRef.ds;
+  if(ds && S.docs && S.docs[ds]){
+    const idx=S.docs[ds].findIndex(d=>
+      d.name===_thumbDocRef.name && d.added===_thumbDocRef.added
+    );
+    if(idx>=0){
+      const doc=S.docs[ds][idx];
+      // Driveからも削除
+      if(doc.driveId && _gcalToken) deleteDrivePhoto(doc.driveId);
+      S.docs[ds].splice(idx,1);
+      if(S.docs[ds].length===0) delete S.docs[ds];
+      autoSave();
+      renderDocThumbList();
+      renderDocsGrid();
+      renderWeekSchedGrid(_lastDates||[]);
+    }
+  }
+  _thumbDocRef=null;
+  closeDocViewer();
 }
 
 
