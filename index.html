@@ -714,6 +714,8 @@ let wOff=0,mOff=0,view='week';
 let _lastDates=[];
 let editKey=null,editIsTT=false,_ds='',_dk='',_pp=0;
 let drawKey='',dCtx=null,drawing=false,pSize=2,pColor=PCOLS[0],eraser=false;
+// Google同期関連（renderWeekより先に定義が必要）
+let _gcalToken=null, _gcalSyncing=false, _skipNextSync=false, _gcalAutoSync=false, _gcalSyncTimer=null;
 let lx=0,ly=0;
 
 // デフォルトデータ
@@ -2255,7 +2257,6 @@ if(typeof renderDocThumbList==='function') renderDocThumbList();
 // ── Google Calendar 連携 ──
 const GCAL_CLIENT_ID = '520565701155-hvu77dq023ok22deg5i5ed0hn75ko08m.apps.googleusercontent.com';
 const GCAL_SCOPES = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/tasks';
-let _gcalToken = null;
 let _gcalTokenClient = null;
 
 function gcalInit(){
@@ -3100,7 +3101,6 @@ function updateUndoButtons(){
 setTimeout(()=>{ pushUndoSnapshot(); }, 100);
 
 // ── リアルタイム同期 ──
-let _gcalSyncTimer=null, _gcalAutoSync=false;
 
 function gcalScheduleTokenRefresh(){
   setTimeout(()=>{
@@ -3193,8 +3193,6 @@ function gcalUpdateSyncBadge(state){
 }
 
 
-let _gcalSyncing=false;
-let _skipNextSync=false;
 function gcalSyncIfActive(){
   // renderWeek内から直接呼ばれる → 同期中でなければ非同期で実行
   // ユーザー操作直後は同期をスキップ（表示上書き防止）
