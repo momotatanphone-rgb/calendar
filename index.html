@@ -640,6 +640,7 @@ window.addEventListener('error', function(e){
       <button class="dvp-color" data-c="#E53E3E" onclick="setDocPenColor('#E53E3E',this)" style="width:22px;height:22px;border-radius:50%;background:#E53E3E;border:2px solid var(--txt);cursor:pointer"></button>
       <button class="dvp-color" data-c="#1A1A1A" onclick="setDocPenColor('#1A1A1A',this)" style="width:22px;height:22px;border-radius:50%;background:#1A1A1A;border:2px solid transparent;cursor:pointer"></button>
       <button class="dvp-color" data-c="#2B6CB0" onclick="setDocPenColor('#2B6CB0',this)" style="width:22px;height:22px;border-radius:50%;background:#2B6CB0;border:2px solid transparent;cursor:pointer"></button>
+      <button id="dvp-eraser" onclick="toggleDocEraser(this)" style="font-size:14px;padding:2px 8px;border-radius:99px;border:1.5px solid transparent;background:var(--bg2);cursor:pointer" title="消しゴム">🧹</button>
       <span style="flex:1"></span>
       <button onclick="undoDocPen()" style="font-size:12px;padding:4px 10px;border-radius:var(--r);border:0.5px solid var(--border2);background:none;color:var(--txt2);cursor:pointer">↶ 戻す</button>
       <button onclick="saveDocPen()" style="font-size:12px;padding:4px 12px;border-radius:var(--r);background:var(--teal);color:#fff;border:none;cursor:pointer">✓ 保存</button>
@@ -769,7 +770,8 @@ const S_DEFAULT = {
   testEvents:[],
   classList:['3-2','3-3','3-4','3-5'],
   mainSubject:'理科',
-  todos:[],  // [{id,text,done}]
+  todos:[],
+  deletedGcalIds:[],  // 削除済みイベントID（再取込防止）
 };
 
 // localStorageから読み込み、なければデフォルト値を使用
@@ -784,6 +786,7 @@ function loadState(){
       if(!merged.classList) merged.classList=['3-2','3-3','3-4','3-5'];
       if(!merged.mainSubject) merged.mainSubject='理科';
       if(!merged.todos) merged.todos=[];
+      if(!merged.deletedGcalIds) merged.deletedGcalIds=[];
       if(!merged.lessonStart) merged.lessonStart={};
       if(!merged.testEvents) merged.testEvents=[];
       return merged;
@@ -1446,6 +1449,20 @@ function renderWeekSchedGrid(dates){
 
     const body=document.createElement('div');
     body.className='wsd-col-body';
+    body.dataset.ds=ds;
+    // ドロップ受け入れ（予定の移動先）
+    body.ondragover=(e)=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; body.style.background='var(--teal-l)'; };
+    body.ondragleave=()=>{ body.style.background=''; };
+    body.ondrop=(e)=>{
+      e.preventDefault();
+      body.style.background='';
+      try{
+        const data=JSON.parse(e.dataTransfer.getData('text/plain'));
+        if(data.ds && data.idx!==undefined && data.ds!==ds){
+          moveSchedItem(data.ds, data.idx, ds);
+        }
+      }catch(err){ console.warn(err); }
+    };
 
     if(sorted.length===0){
       const e=document.createElement('div');
@@ -1485,6 +1502,58 @@ function renderWeekSchedGrid(dates){
              ${docStr}
              <button class="sc-del" onclick="event.stopPropagation();deleteSchedItemDirect('${ds}',${realIdx})">✕</button>`;
         chip.onclick=()=>{ if(!isReminder) openSchedModal(ds,realIdx); };
+        // ドラッグで別の日へ移動（PC: HTML5 DnD）
+        chip.draggable=true;
+        chip.ondragstart=(e)=>{
+          e.dataTransfer.setData('text/plain', JSON.stringify({ds, idx:realIdx}));
+          e.dataTransfer.effectAllowed='move';
+          chip.style.opacity='.4';
+        };
+        chip.ondragend=()=>{ chip.style.opacity=''; };
+        // タッチ長押しドラッグ（iPad対応）
+        let _tDragTimer=null, _tDragging=false, _tGhost=null;
+        chip.addEventListener('touchstart',(e)=>{
+          _tDragTimer=setTimeout(()=>{
+            _tDragging=true;
+            chip.style.opacity='.4';
+            // ゴースト表示
+            _tGhost=chip.cloneNode(true);
+            _tGhost.style.cssText='position:fixed;pointer-events:none;z-index:9999;width:'+chip.offsetWidth+'px;opacity:.85;box-shadow:0 4px 12px rgba(0,0,0,.25);border-radius:4px';
+            document.body.appendChild(_tGhost);
+            const t=e.touches[0];
+            _tGhost.style.left=(t.clientX-chip.offsetWidth/2)+'px';
+            _tGhost.style.top=(t.clientY-20)+'px';
+            if(navigator.vibrate) navigator.vibrate(30);
+          },500);
+        },{passive:true});
+        chip.addEventListener('touchmove',(e)=>{
+          if(!_tDragging){ clearTimeout(_tDragTimer); return; }
+          e.preventDefault();
+          const t=e.touches[0];
+          if(_tGhost){
+            _tGhost.style.left=(t.clientX-chip.offsetWidth/2)+'px';
+            _tGhost.style.top=(t.clientY-20)+'px';
+          }
+          // ドロップ先候補をハイライト
+          document.querySelectorAll('.wsd-col-body').forEach(b=>b.style.background='');
+          const el=document.elementFromPoint(t.clientX,t.clientY);
+          const targetBody=el?.closest('.wsd-col-body');
+          if(targetBody) targetBody.style.background='var(--teal-l)';
+        },{passive:false});
+        chip.addEventListener('touchend',(e)=>{
+          clearTimeout(_tDragTimer);
+          if(!_tDragging) return;
+          _tDragging=false;
+          chip.style.opacity='';
+          if(_tGhost){ _tGhost.remove(); _tGhost=null; }
+          document.querySelectorAll('.wsd-col-body').forEach(b=>b.style.background='');
+          const t=e.changedTouches[0];
+          const el=document.elementFromPoint(t.clientX,t.clientY);
+          const targetBody=el?.closest('.wsd-col-body');
+          if(targetBody && targetBody.dataset.ds && targetBody.dataset.ds!==ds){
+            moveSchedItem(ds, realIdx, targetBody.dataset.ds);
+          }
+        });
         chipWrap.appendChild(chip);
 
         // 書類サムネイルストリップ
@@ -1566,13 +1635,65 @@ function saveSchedItem(){
 function deleteSchedItem(){
   if(!S.schedules) return;
   const ds=document.getElementById('sched-modal').dataset.ds||iso(new Date());
-  if(_schedEditIdx!==null&&S.schedules[ds]) S.schedules[ds].splice(_schedEditIdx,1);
+  if(_schedEditIdx!==null&&S.schedules[ds]){
+    const item=S.schedules[ds][_schedEditIdx];
+    deleteFromGoogle(item); // Googleカレンダー・タスクからも削除
+    S.schedules[ds].splice(_schedEditIdx,1);
+    if(S.schedules[ds].length===0) delete S.schedules[ds];
+  }
+  _skipNextSync=true;
+  autoSave();
   closeSchedModal();
   renderWeekSchedGrid(_lastDates||[]);
 }
 function deleteSchedItemDirect(ds,idx){
-  if(S.schedules&&S.schedules[ds]) S.schedules[ds].splice(idx,1);
+  if(S.schedules&&S.schedules[ds]&&S.schedules[ds][idx]){
+    const item=S.schedules[ds][idx];
+    deleteFromGoogle(item); // Googleカレンダー・タスクからも削除
+    S.schedules[ds].splice(idx,1);
+    if(S.schedules[ds].length===0) delete S.schedules[ds];
+  }
+  _skipNextSync=true;
+  autoSave();
   renderWeekSchedGrid(_lastDates||[]);
+}
+
+// Googleカレンダー・タスクからイベントを削除
+async function deleteFromGoogle(item){
+  if(!item) return;
+  // 削除済みIDを記録（再取込防止）
+  if(item.gcalId){
+    if(!S.deletedGcalIds) S.deletedGcalIds=[];
+    if(!S.deletedGcalIds.includes(item.gcalId)) S.deletedGcalIds.push(item.gcalId);
+    if(S.deletedGcalIds.length>500) S.deletedGcalIds=S.deletedGcalIds.slice(-300);
+  }
+  if(item.taskId){
+    if(!S.deletedGcalIds) S.deletedGcalIds=[];
+    if(!S.deletedGcalIds.includes(item.taskId)) S.deletedGcalIds.push(item.taskId);
+  }
+  if(!_gcalToken) return;
+  // カレンダーイベント
+  if(item.gcalId){
+    try{
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalId}`,
+        {method:'DELETE',headers:{Authorization:`Bearer ${_gcalToken}`}}
+      );
+      console.log('Googleカレンダーからも削除しました');
+    }catch(e){ console.warn('カレンダー削除エラー:', e); }
+  }
+  // Googleタスク（リマインダー）
+  if(item.taskId){
+    try{
+      const listId=await getGTasksListId();
+      if(listId){
+        await fetch(
+          `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${item.taskId}`,
+          {method:'DELETE',headers:{Authorization:`Bearer ${_gcalToken}`}}
+        );
+      }
+    }catch(e){ console.warn('タスク削除エラー:', e); }
+  }
 }
 
 // ── 月予定ペースト入力 ──
@@ -2578,6 +2699,8 @@ async function gcalSyncReminders(){
 
       tasks.forEach(task=>{
         if(!task.title) return;
+        // 削除済みタスクは再取込しない
+        if((S.deletedGcalIds||[]).includes(task.id)) return;
 
         // 期限日があればその日に、なければ今日に追加
         let ds;
@@ -3367,12 +3490,29 @@ function toggleDocPen(){
     canvas.onpointermove=e=>{
       if((e.pointerType==='pen'||e.pointerType==='mouse') && _docPenDrawing){
         const p=getDocPenPos(e,canvas);
-        _docPenCtx.lineTo(p.x,p.y);
-        _docPenCtx.strokeStyle=_docPenColor;
-        _docPenCtx.lineWidth=Math.max(3,canvas.width/300);
-        _docPenCtx.lineCap='round';
-        _docPenCtx.lineJoin='round';
-        _docPenCtx.stroke();
+        if(_docPenEraser){
+          // 消しゴム：元画像（履歴の最初）から該当部分を復元
+          const base=_docPenHistory[0];
+          if(base){
+            const r=Math.max(12,canvas.width/60);
+            const tmpCanvas=document.createElement('canvas');
+            tmpCanvas.width=canvas.width; tmpCanvas.height=canvas.height;
+            tmpCanvas.getContext('2d').putImageData(base,0,0);
+            _docPenCtx.save();
+            _docPenCtx.beginPath();
+            _docPenCtx.arc(p.x,p.y,r,0,Math.PI*2);
+            _docPenCtx.clip();
+            _docPenCtx.drawImage(tmpCanvas,0,0);
+            _docPenCtx.restore();
+          }
+        } else {
+          _docPenCtx.lineTo(p.x,p.y);
+          _docPenCtx.strokeStyle=_docPenColor;
+          _docPenCtx.lineWidth=Math.max(3,canvas.width/300);
+          _docPenCtx.lineCap='round';
+          _docPenCtx.lineJoin='round';
+          _docPenCtx.stroke();
+        }
         e.preventDefault();
       } else if(e.pointerType==='touch' && activeTouches.has(e.pointerId)){
         activeTouches.set(e.pointerId,{x:e.clientX,y:e.clientY});
@@ -3422,10 +3562,23 @@ function getDocPenPos(e,canvas){
   };
 }
 
+let _docPenEraser=false;
 function setDocPenColor(c,btn){
   _docPenColor=c;
+  _docPenEraser=false;
   document.querySelectorAll('.dvp-color').forEach(b=>b.style.borderColor='transparent');
   btn.style.borderColor='var(--txt)';
+  const er=document.getElementById('dvp-eraser');
+  if(er) er.style.borderColor='transparent';
+}
+function toggleDocEraser(btn){
+  _docPenEraser=!_docPenEraser;
+  if(_docPenEraser){
+    document.querySelectorAll('.dvp-color').forEach(b=>b.style.borderColor='transparent');
+    btn.style.borderColor='var(--coral)';
+  } else {
+    btn.style.borderColor='transparent';
+  }
 }
 
 function undoDocPen(){
@@ -3485,6 +3638,73 @@ async function saveDocPen(){
   exitDocPen();
 }
 
+
+// ── 予定を別の日に移動（Googleカレンダーも更新） ──
+async function moveSchedItem(fromDs, idx, toDs){
+  if(!S.schedules||!S.schedules[fromDs]||!S.schedules[fromDs][idx]) return;
+  const item=S.schedules[fromDs][idx];
+
+  // アプリ内で移動
+  S.schedules[fromDs].splice(idx,1);
+  if(S.schedules[fromDs].length===0) delete S.schedules[fromDs];
+  if(!S.schedules[toDs]) S.schedules[toDs]=[];
+  S.schedules[toDs].push(item);
+
+  _skipNextSync=true;
+  autoSave();
+  renderWeekSchedGrid(_lastDates||[]);
+  if(typeof renderMonth==='function'&&view==='month') renderMonth();
+
+  // Googleカレンダーのイベントも移動
+  if(item.gcalId && _gcalToken){
+    try{
+      // 既存イベントを取得して日付だけ変更
+      const getRes=await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalId}`,
+        {headers:{Authorization:`Bearer ${_gcalToken}`}}
+      );
+      if(getRes.ok){
+        const ev=await getRes.json();
+        const body={};
+        if(ev.start?.date){
+          // 終日イベント
+          body.start={date:toDs};
+          const endD=new Date(toDs); endD.setDate(endD.getDate()+1);
+          body.end={date:iso(endD)};
+        } else if(ev.start?.dateTime){
+          // 時刻付きイベント: 日付部分だけ差し替え
+          const stTime=ev.start.dateTime.split('T')[1];
+          const enTime=ev.end?.dateTime?ev.end.dateTime.split('T')[1]:stTime;
+          body.start={dateTime:`${toDs}T${stTime}`,timeZone:ev.start.timeZone||'Asia/Tokyo'};
+          body.end={dateTime:`${toDs}T${enTime}`,timeZone:ev.end?.timeZone||'Asia/Tokyo'};
+        }
+        await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalId}`,
+          {method:'PATCH',
+           headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
+           body:JSON.stringify(body)}
+        );
+        console.log('Googleカレンダーのイベントも移動しました');
+      }
+    }catch(e){ console.warn('カレンダー移動エラー:', e); }
+  }
+
+  // Googleタスク（リマインダー）の期限も更新
+  if(item.taskId && _gcalToken){
+    try{
+      const listId=await getGTasksListId();
+      if(listId){
+        await fetch(
+          `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${item.taskId}`,
+          {method:'PATCH',
+           headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
+           body:JSON.stringify({due:toDs+'T00:00:00.000Z'})}
+        );
+      }
+    }catch(e){ console.warn('タスク移動エラー:', e); }
+  }
+}
+
 // ── リアルタイム同期 ──
 
 function gcalScheduleTokenRefresh(){
@@ -3525,6 +3745,8 @@ async function gcalSyncNow(){
     const data=await res.json();
     if(!S.schedules)S.schedules={};
     (data.items||[]).forEach(ev=>{
+      // 削除済みイベントは再取込しない
+      if((S.deletedGcalIds||[]).includes(ev.id)) return;
       const start=ev.start.dateTime||ev.start.date;
       const end2=ev.end.dateTime||ev.end.date;
       const dt=new Date(start);const ds=iso(dt);
