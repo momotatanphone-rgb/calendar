@@ -3287,6 +3287,17 @@ async function exportDocsPdf(ds){
 }
 
 
+
+// 書き込みモードの拡大・移動用
+let _docPenScale=1, _docPenTx=0, _docPenTy=0;
+function applyDocPenTransform(){
+  const canvas=document.getElementById('dv-canvas');
+  const img=document.getElementById('dv-img');
+  const t=`translate(${_docPenTx}px,${_docPenTy}px) scale(${_docPenScale})`;
+  if(canvas){ canvas.style.transform=t; canvas.style.transformOrigin='center center'; }
+  if(img&&_docPenActive){ img.style.transform=t; img.style.transformOrigin='center center'; }
+}
+
 // ── 書類へのペン書き込み ──
 let _docPenActive=false;
 let _docPenColor='#E53E3E';
@@ -3324,31 +3335,78 @@ function toggleDocPen(){
     _docPenCtx.drawImage(img,0,0,canvas.width,canvas.height);
     _docPenHistory=[_docPenCtx.getImageData(0,0,canvas.width,canvas.height)];
 
-    // タッチ・マウスイベント
+    // ペン=描画、指=拡大・移動
+    // 変形状態
+    _docPenScale=1; _docPenTx=0; _docPenTy=0;
+    applyDocPenTransform();
+
+    const activeTouches=new Map(); // pointerId -> {x,y}
+    let pinchStart=null; // {dist, scale, cx, cy, tx, ty}
+
     canvas.onpointerdown=e=>{
-      _docPenDrawing=true;
-      const p=getDocPenPos(e,canvas);
-      _docPenCtx.beginPath();
-      _docPenCtx.moveTo(p.x,p.y);
-      e.preventDefault();
+      if(e.pointerType==='pen' || e.pointerType==='mouse'){
+        // ペン・マウス → 描画
+        _docPenDrawing=true;
+        const p=getDocPenPos(e,canvas);
+        _docPenCtx.beginPath();
+        _docPenCtx.moveTo(p.x,p.y);
+        e.preventDefault();
+      } else if(e.pointerType==='touch'){
+        // 指 → 拡大・移動
+        activeTouches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        if(activeTouches.size===2){
+          const pts=[...activeTouches.values()];
+          const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+          pinchStart={dist,scale:_docPenScale,cx:(pts[0].x+pts[1].x)/2,cy:(pts[0].y+pts[1].y)/2,tx:_docPenTx,ty:_docPenTy};
+        } else if(activeTouches.size===1){
+          pinchStart={dist:0,scale:_docPenScale,cx:e.clientX,cy:e.clientY,tx:_docPenTx,ty:_docPenTy};
+        }
+        e.preventDefault();
+      }
     };
     canvas.onpointermove=e=>{
-      if(!_docPenDrawing) return;
-      const p=getDocPenPos(e,canvas);
-      _docPenCtx.lineTo(p.x,p.y);
-      _docPenCtx.strokeStyle=_docPenColor;
-      _docPenCtx.lineWidth=Math.max(3,canvas.width/300);
-      _docPenCtx.lineCap='round';
-      _docPenCtx.lineJoin='round';
-      _docPenCtx.stroke();
-      e.preventDefault();
+      if((e.pointerType==='pen'||e.pointerType==='mouse') && _docPenDrawing){
+        const p=getDocPenPos(e,canvas);
+        _docPenCtx.lineTo(p.x,p.y);
+        _docPenCtx.strokeStyle=_docPenColor;
+        _docPenCtx.lineWidth=Math.max(3,canvas.width/300);
+        _docPenCtx.lineCap='round';
+        _docPenCtx.lineJoin='round';
+        _docPenCtx.stroke();
+        e.preventDefault();
+      } else if(e.pointerType==='touch' && activeTouches.has(e.pointerId)){
+        activeTouches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        if(activeTouches.size===2 && pinchStart && pinchStart.dist>0){
+          // ピンチ拡大
+          const pts=[...activeTouches.values()];
+          const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+          const newScale=Math.min(5,Math.max(0.5,pinchStart.scale*dist/pinchStart.dist));
+          const cx=(pts[0].x+pts[1].x)/2, cy=(pts[0].y+pts[1].y)/2;
+          _docPenScale=newScale;
+          _docPenTx=pinchStart.tx+(cx-pinchStart.cx);
+          _docPenTy=pinchStart.ty+(cy-pinchStart.cy);
+          applyDocPenTransform();
+        } else if(activeTouches.size===1 && pinchStart){
+          // 1本指ドラッグで移動
+          _docPenTx=pinchStart.tx+(e.clientX-pinchStart.cx);
+          _docPenTy=pinchStart.ty+(e.clientY-pinchStart.cy);
+          applyDocPenTransform();
+        }
+        e.preventDefault();
+      }
     };
     canvas.onpointerup=e=>{
-      if(_docPenDrawing){
+      if((e.pointerType==='pen'||e.pointerType==='mouse') && _docPenDrawing){
         _docPenDrawing=false;
         _docPenHistory.push(_docPenCtx.getImageData(0,0,canvas.width,canvas.height));
         if(_docPenHistory.length>10) _docPenHistory.shift();
       }
+      activeTouches.delete(e.pointerId);
+      if(activeTouches.size<2) pinchStart=activeTouches.size===1?{dist:0,scale:_docPenScale,cx:[...activeTouches.values()][0].x,cy:[...activeTouches.values()][0].y,tx:_docPenTx,ty:_docPenTy}:null;
+    };
+    canvas.onpointercancel=e=>{
+      activeTouches.delete(e.pointerId);
+      if(activeTouches.size===0) pinchStart=null;
     };
   } else {
     // 中止
@@ -3378,6 +3436,11 @@ function undoDocPen(){
 
 function exitDocPen(){
   _docPenActive=false;
+  _docPenScale=1; _docPenTx=0; _docPenTy=0;
+  const cv=document.getElementById('dv-canvas');
+  const im=document.getElementById('dv-img');
+  if(cv) cv.style.transform='';
+  if(im) im.style.transform='';
   document.getElementById('dv-canvas').style.display='none';
   document.getElementById('dv-pen-tools').style.display='none';
   const btn=document.getElementById('dv-pen-btn');
