@@ -627,10 +627,22 @@ window.addEventListener('error', function(e){
   <div class="doc-viewer-modal">
     <div class="doc-viewer-hdr">
       <span id="dv-name">書類</span>
-      <button onclick="closeDocViewer()" style="font-size:18px;background:none;border:none;cursor:pointer;color:var(--txt2)">✕</button>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button id="dv-pen-btn" onclick="toggleDocPen()" style="font-size:12px;padding:4px 10px;border-radius:99px;border:0.5px solid var(--teal);background:var(--teal-l);color:var(--teal-m);cursor:pointer">✏️ 書き込み</button>
+        <button onclick="closeDocViewer()" style="font-size:18px;background:none;border:none;cursor:pointer;color:var(--txt2)">✕</button>
+      </div>
     </div>
-    <div class="doc-viewer-body">
+    <div class="doc-viewer-body" id="dv-body" style="position:relative">
       <img id="dv-img" src="" alt="書類"/>
+      <canvas id="dv-canvas" style="display:none;position:absolute;top:0;left:0;touch-action:none;cursor:crosshair"></canvas>
+    </div>
+    <div id="dv-pen-tools" style="display:none;padding:6px 12px;border-top:0.5px solid var(--border);align-items:center;gap:8px">
+      <button class="dvp-color" data-c="#E53E3E" onclick="setDocPenColor('#E53E3E',this)" style="width:22px;height:22px;border-radius:50%;background:#E53E3E;border:2px solid var(--txt);cursor:pointer"></button>
+      <button class="dvp-color" data-c="#1A1A1A" onclick="setDocPenColor('#1A1A1A',this)" style="width:22px;height:22px;border-radius:50%;background:#1A1A1A;border:2px solid transparent;cursor:pointer"></button>
+      <button class="dvp-color" data-c="#2B6CB0" onclick="setDocPenColor('#2B6CB0',this)" style="width:22px;height:22px;border-radius:50%;background:#2B6CB0;border:2px solid transparent;cursor:pointer"></button>
+      <span style="flex:1"></span>
+      <button onclick="undoDocPen()" style="font-size:12px;padding:4px 10px;border-radius:var(--r);border:0.5px solid var(--border2);background:none;color:var(--txt2);cursor:pointer">↶ 戻す</button>
+      <button onclick="saveDocPen()" style="font-size:12px;padding:4px 12px;border-radius:var(--r);background:var(--teal);color:#fff;border:none;cursor:pointer">✓ 保存</button>
     </div>
     <div class="doc-viewer-footer">
       <input type="text" id="dv-name-input" placeholder="書類名を入力"/>
@@ -3272,6 +3284,142 @@ async function exportDocsPdf(ds){
     });
   }
   pdf.save(`書類_${ds}.pdf`);
+}
+
+
+// ── 書類へのペン書き込み ──
+let _docPenActive=false;
+let _docPenColor='#E53E3E';
+let _docPenDrawing=false;
+let _docPenHistory=[];
+let _docPenCtx=null;
+
+function toggleDocPen(){
+  const canvas=document.getElementById('dv-canvas');
+  const img=document.getElementById('dv-img');
+  const tools=document.getElementById('dv-pen-tools');
+  const btn=document.getElementById('dv-pen-btn');
+
+  if(!_docPenActive){
+    // 書き込みモード開始
+    if(!img.src){ alert('画像がありません'); return; }
+    _docPenActive=true;
+    tools.style.display='flex';
+    btn.textContent='✕ 中止';
+    btn.style.background='var(--coral-l)'; btn.style.color='var(--coral)'; btn.style.borderColor='var(--coral)';
+
+    // キャンバスを画像サイズに合わせる
+    const rect=img.getBoundingClientRect();
+    const bodyRect=document.getElementById('dv-body').getBoundingClientRect();
+    canvas.width=img.naturalWidth;
+    canvas.height=img.naturalHeight;
+    canvas.style.width=rect.width+'px';
+    canvas.style.height=rect.height+'px';
+    canvas.style.top=(rect.top-bodyRect.top)+'px';
+    canvas.style.left=(rect.left-bodyRect.left)+'px';
+    canvas.style.display='block';
+
+    _docPenCtx=canvas.getContext('2d');
+    // 画像をキャンバスに描画
+    _docPenCtx.drawImage(img,0,0,canvas.width,canvas.height);
+    _docPenHistory=[_docPenCtx.getImageData(0,0,canvas.width,canvas.height)];
+
+    // タッチ・マウスイベント
+    canvas.onpointerdown=e=>{
+      _docPenDrawing=true;
+      const p=getDocPenPos(e,canvas);
+      _docPenCtx.beginPath();
+      _docPenCtx.moveTo(p.x,p.y);
+      e.preventDefault();
+    };
+    canvas.onpointermove=e=>{
+      if(!_docPenDrawing) return;
+      const p=getDocPenPos(e,canvas);
+      _docPenCtx.lineTo(p.x,p.y);
+      _docPenCtx.strokeStyle=_docPenColor;
+      _docPenCtx.lineWidth=Math.max(3,canvas.width/300);
+      _docPenCtx.lineCap='round';
+      _docPenCtx.lineJoin='round';
+      _docPenCtx.stroke();
+      e.preventDefault();
+    };
+    canvas.onpointerup=e=>{
+      if(_docPenDrawing){
+        _docPenDrawing=false;
+        _docPenHistory.push(_docPenCtx.getImageData(0,0,canvas.width,canvas.height));
+        if(_docPenHistory.length>10) _docPenHistory.shift();
+      }
+    };
+  } else {
+    // 中止
+    exitDocPen();
+  }
+}
+
+function getDocPenPos(e,canvas){
+  const rect=canvas.getBoundingClientRect();
+  return {
+    x:(e.clientX-rect.left)*canvas.width/rect.width,
+    y:(e.clientY-rect.top)*canvas.height/rect.height
+  };
+}
+
+function setDocPenColor(c,btn){
+  _docPenColor=c;
+  document.querySelectorAll('.dvp-color').forEach(b=>b.style.borderColor='transparent');
+  btn.style.borderColor='var(--txt)';
+}
+
+function undoDocPen(){
+  if(_docPenHistory.length<=1) return;
+  _docPenHistory.pop();
+  _docPenCtx.putImageData(_docPenHistory[_docPenHistory.length-1],0,0);
+}
+
+function exitDocPen(){
+  _docPenActive=false;
+  document.getElementById('dv-canvas').style.display='none';
+  document.getElementById('dv-pen-tools').style.display='none';
+  const btn=document.getElementById('dv-pen-btn');
+  btn.textContent='✏️ 書き込み';
+  btn.style.background='var(--teal-l)'; btn.style.color='var(--teal-m)'; btn.style.borderColor='var(--teal)';
+}
+
+async function saveDocPen(){
+  const canvas=document.getElementById('dv-canvas');
+  if(!canvas||!_docPenActive) return;
+  const newDataUrl=canvas.toDataURL('image/jpeg',0.8);
+
+  // 表示画像を更新
+  document.getElementById('dv-img').src=newDataUrl;
+
+  // 保存先のdocを特定して更新
+  if(_thumbDocRef&&_thumbDocRef.ds){
+    const ds=_thumbDocRef.ds;
+    if(S.docs&&S.docs[ds]){
+      const idx=S.docs[ds].findIndex(d=>d.name===_thumbDocRef.name&&d.added===_thumbDocRef.added);
+      if(idx>=0){
+        S.docs[ds][idx].img=newDataUrl;
+        // Driveにも上書きアップロード（新規ファイルとして）
+        if(_gcalToken){
+          try{
+            const fileId=await uploadPhotoToDrive(newDataUrl,(S.docs[ds][idx].name||'doc')+'_edited_'+Date.now()+'.jpg');
+            if(fileId){
+              // 古いDriveファイルを削除して差し替え
+              if(S.docs[ds][idx].driveId) deleteDrivePhoto(S.docs[ds][idx].driveId);
+              S.docs[ds][idx].driveId=fileId;
+              if(_drivePhotoUrlCache[fileId]) delete _drivePhotoUrlCache[fileId];
+            }
+          }catch(e){ console.warn(e); }
+        }
+        _thumbDocRef=S.docs[ds][idx]; _thumbDocRef.ds=ds;
+        autoSave();
+        renderWeek();
+        if(typeof renderDocThumbList==='function') renderDocThumbList();
+      }
+    }
+  }
+  exitDocPen();
 }
 
 // ── リアルタイム同期 ──
