@@ -1,3 +1,44 @@
+// ── 理科室設定（コマ単位グリッド） ──
+function renderScienceRoomWeekly(){
+  const el=document.getElementById('science-room-grid');
+  if(!el) return;
+  el.innerHTML='';
+  const tbl=document.createElement('table');
+  tbl.style.cssText='border-collapse:collapse;width:100%;font-size:12px';
+  const thead=tbl.createTHead();
+  const hr=thead.insertRow();
+  ['',...DJ].forEach(t=>{
+    const th=document.createElement('th');
+    th.textContent=t;
+    th.style.cssText='padding:4px;font-size:11px;color:var(--txt3);font-weight:500';
+    hr.appendChild(th);
+  });
+  const tbody=tbl.createTBody();
+  for(let p=1;p<=6;p++){
+    const tr=tbody.insertRow();
+    const tdP=tr.insertCell();
+    tdP.textContent=p;
+    tdP.style.cssText='padding:4px;text-align:center;font-size:11px;color:var(--txt3)';
+    for(let di=0;di<5;di++){
+      const td=tr.insertCell();
+      if(di===0&&p===6){ td.style.cssText='background:var(--bg2);opacity:.3'; continue; }
+      const key=DK[di]+'-'+p;
+      const on=!!(S.scienceRoomSlots&&S.scienceRoomSlots[key]);
+      td.style.cssText=`padding:6px;text-align:center;cursor:pointer;border:0.5px solid var(--border);border-radius:4px;${on?'background:var(--teal-l)':'background:var(--bg2)'}`;
+      td.textContent=on?'🧪':'';
+      td.onclick=()=>{
+        if(!S.scienceRoomSlots) S.scienceRoomSlots={};
+        if(S.scienceRoomSlots[key]) delete S.scienceRoomSlots[key];
+        else S.scienceRoomSlots[key]=true;
+        autoSave();
+        renderScienceRoomWeekly();
+        renderWeek();
+      };
+    }
+  }
+  el.appendChild(tbl);
+}
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -584,9 +625,9 @@ window.addEventListener('error', function(e){
 
   <!-- バックアップ -->
     <div class="sec">
-    <div class="sec-ttl">🧪 理科室の設定</div>
-    <div style="font-size:11px;color:var(--txt3);margin-bottom:8px">理科室が優先的に使える曜日にチェック。週表示の日付をタップで個別に変更できます。</div>
-    <div id="science-room-weekly" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+    <div class="sec-ttl">🧪 理科室が使えるコマ（毎週）</div>
+    <div style="font-size:11px;color:var(--txt3);margin-bottom:8px">理科室が優先的に使えるコマをタップして設定。週表示ではコマの🧪をタップするとその日だけ変更できます。</div>
+    <div id="science-room-grid"></div>
   </div>
 
   <div class="sec">
@@ -802,6 +843,53 @@ let editKey=null,editIsTT=false,_ds='',_dk='',_pp=0;
 let drawKey='',dCtx=null,drawing=false,pSize=2,pColor=PCOLS[0],eraser=false;
 // Google同期関連（renderWeekより先に定義が必要）
 let _gcalToken=null, _gcalSyncing=false, _skipNextSync=false, _gcalAutoSync=false, _gcalSyncTimer=null;
+
+// ── 分野別授業計画ヘルパー ──
+const LESSON_CATS=['化学','生物','物理','地学','その他'];
+function getPlanArr(cat){ if(!S.lessonPlans)S.lessonPlans={}; if(!S.lessonPlans[cat])S.lessonPlans[cat]=[]; return S.lessonPlans[cat]; }
+function totalPlanCount(){ return LESSON_CATS.reduce((s,c)=>s+getPlanArr(c).length,0); }
+// lessonCellMap値を解釈: 'cat|idx' | 数値(旧=化学) | 文字列(自由入力)
+function parseLessonVal(val){
+  if(val===undefined||val===null) return null;
+  if(typeof val==='number') return {cat:'化学', idx:val};
+  if(typeof val==='string'){
+    if(val.includes('|')){
+      const [cat,i]=val.split('|');
+      if(LESSON_CATS.includes(cat)&&!isNaN(Number(i))) return {cat, idx:Number(i)};
+    }
+    if(!isNaN(Number(val))) return {cat:'化学', idx:Number(val)};
+    return {text:val};
+  }
+  return null;
+}
+function lessonLabel(cat, idx, content){
+  return `${cat.charAt(0)}${idx+1} ${content||'（未設定）'}`;
+}
+
+// ── 長期休暇 ──
+function isVacation(ds){
+  return (S.vacations||[]).some(v=>v.start&&v.end&&ds>=v.start&&ds<=v.end);
+}
+function vacationName(ds){
+  const v=(S.vacations||[]).find(v=>v.start&&v.end&&ds>=v.start&&ds<=v.end);
+  return v?v.name:'';
+}
+
+// ── 理科室（コマ単位） ──
+function isScienceRoomSlot(ds, dk, p){
+  const ovKey=ds+'-'+dk+'-'+p;
+  if(S.scienceRoomOv&&S.scienceRoomOv[ovKey]!==undefined) return S.scienceRoomOv[ovKey];
+  return !!(S.scienceRoomSlots&&S.scienceRoomSlots[dk+'-'+p]);
+}
+function toggleScienceRoomSlot(ds, dk, p){
+  if(!S.scienceRoomOv) S.scienceRoomOv={};
+  const ovKey=ds+'-'+dk+'-'+p;
+  S.scienceRoomOv[ovKey]=!isScienceRoomSlot(ds,dk,p);
+  autoSave();
+  renderWeek();
+}
+
+
 let lx=0,ly=0;
 
 // デフォルトデータ
@@ -834,8 +922,8 @@ const S_DEFAULT = {
   todos:[],
   deletedGcalIds:[],
   lessonPlans:{'化学':[],'生物':[],'物理':[],'地学':[],'その他':[]},  // 分野別授業計画
-  scienceRoomWeekly:{mon:true,tue:true,wed:true,thu:true,fri:true},  // 理科室が使える曜日
-  scienceRoomOv:{},   // 日付ごとの理科室上書き {ds:true/false}
+  scienceRoomSlots:{},  // 理科室が使えるコマ {'dk-p':true}
+  scienceRoomOv:{},     // 日付別上書き {'ds-dk-p':bool}
   vacations:[],       // 長期休暇 [{id,name,start,end}]
 };
 
@@ -860,7 +948,7 @@ function loadState(){
         merged.lessonPlans['化学']=merged.lessonPlan.map(u=>({id:u.id,content:u.content||''}));
         merged._planMigrated=true;
       }
-      if(!merged.scienceRoomWeekly) merged.scienceRoomWeekly={mon:true,tue:true,wed:true,thu:true,fri:true};
+      if(!merged.scienceRoomSlots) merged.scienceRoomSlots={};
       if(!merged.scienceRoomOv) merged.scienceRoomOv={};
       if(!merged.vacations) merged.vacations=[];
       if(!merged.testEvents) merged.testEvents=[];
@@ -1029,6 +1117,17 @@ function renderWeek(){
             <div class="cn" style="color:${c.fg}">${data.subj||''} ${data.cls||''}</div>
           </div>
         `;
+        // 理科室バッジ（メイン教科のコマのみ）
+        if(data.subj===(S.mainSubject||'')){
+          const sciOk=isScienceRoomSlot(ds,DK[i],p+1);
+          const sci=document.createElement('span');
+          sci.textContent='🧪';
+          sci.title=sciOk?'理科室 使用可（タップで変更）':'理科室 使用不可（タップで変更）';
+          sci.style.cssText=`position:absolute;top:2px;right:18px;font-size:10px;cursor:pointer;padding:1px 3px;border-radius:4px;${sciOk?'background:var(--teal-l);border:0.5px solid var(--teal)':'opacity:.35;filter:grayscale(1)'}`;
+          sci.onclick=(e)=>{e.stopPropagation();toggleScienceRoomSlot(ds,DK[i],p+1);};
+          cell.style.position='relative';
+          cell.appendChild(sci);
+        }
         // 授業内容を表示
         if(data.subj===(S.mainSubject||'')&&totalPlanCount()>0){
           const cur = getCurrentUnit(data.cls, ds, DK[i], String(p+1));
@@ -1522,10 +1621,8 @@ function renderWeekSchedGrid(dates){
     const hdr=document.createElement('div');
     hdr.className='wsd-col-hdr'+(isToday?' today':'');
     const isVac=isVacation(ds);
-    const sciOk=isScienceRoomDay(ds,DK[i]);
-    const sciBadge=`<span onclick="event.stopPropagation();toggleScienceRoomOv('${ds}','${DK[i]}')" title="${sciOk?'理科室 使用可（タップで変更）':'理科室 使用不可（タップで変更）'}" style="cursor:pointer;font-size:10px;padding:1px 5px;border-radius:99px;margin-left:4px;${sciOk?'background:var(--teal-l);color:var(--teal-m);border:0.5px solid var(--teal)':'background:var(--bg2);color:var(--txt3);border:0.5px solid var(--border2);opacity:.6;text-decoration:line-through'}">🧪</span>`;
     const vacBadge=isVac?`<span style="font-size:9px;padding:1px 5px;border-radius:99px;background:var(--amber-l);color:var(--amber);border:0.5px solid var(--amber);margin-left:3px">🏖️${vacationName(ds)}</span>`:'';
-    hdr.innerHTML=`<span>${DJ[i]} ${fmt(d)}${sciBadge}${vacBadge}</span><button class="wsd-add-btn" onclick="openSchedModal('${ds}')" title="予定を追加">＋</button>`;
+    hdr.innerHTML=`<span>${DJ[i]} ${fmt(d)}${vacBadge}</span><button class="wsd-add-btn" onclick="openSchedModal('${ds}')" title="予定を追加">＋</button>`;
     col.appendChild(hdr);
 
     const body=document.createElement('div');
@@ -4149,50 +4246,6 @@ function getUniqueClasses(){
   return [...set].sort();
 }
 
-
-// ── 分野別授業計画ヘルパー ──
-const LESSON_CATS=['化学','生物','物理','地学','その他'];
-function getPlanArr(cat){ if(!S.lessonPlans)S.lessonPlans={}; if(!S.lessonPlans[cat])S.lessonPlans[cat]=[]; return S.lessonPlans[cat]; }
-function totalPlanCount(){ return LESSON_CATS.reduce((s,c)=>s+getPlanArr(c).length,0); }
-// lessonCellMap値を解釈: 'cat|idx' | 数値(旧=化学) | 文字列(自由入力)
-function parseLessonVal(val){
-  if(val===undefined||val===null) return null;
-  if(typeof val==='number') return {cat:'化学', idx:val};
-  if(typeof val==='string'){
-    if(val.includes('|')){
-      const [cat,i]=val.split('|');
-      if(LESSON_CATS.includes(cat)&&!isNaN(Number(i))) return {cat, idx:Number(i)};
-    }
-    if(!isNaN(Number(val))) return {cat:'化学', idx:Number(val)};
-    return {text:val};
-  }
-  return null;
-}
-function lessonLabel(cat, idx, content){
-  return `${cat.charAt(0)}${idx+1} ${content||'（未設定）'}`;
-}
-
-// ── 長期休暇 ──
-function isVacation(ds){
-  return (S.vacations||[]).some(v=>v.start&&v.end&&ds>=v.start&&ds<=v.end);
-}
-function vacationName(ds){
-  const v=(S.vacations||[]).find(v=>v.start&&v.end&&ds>=v.start&&ds<=v.end);
-  return v?v.name:'';
-}
-
-// ── 理科室 ──
-function isScienceRoomDay(ds, dk){
-  if(S.scienceRoomOv&&S.scienceRoomOv[ds]!==undefined) return S.scienceRoomOv[ds];
-  return !!(S.scienceRoomWeekly&&S.scienceRoomWeekly[dk]);
-}
-function toggleScienceRoomOv(ds, dk){
-  if(!S.scienceRoomOv) S.scienceRoomOv={};
-  const cur=isScienceRoomDay(ds,dk);
-  S.scienceRoomOv[ds]=!cur;
-  autoSave();
-  renderWeekSchedGrid(_lastDates||[]);
-}
 
 // ドロップダウンHTML生成（分野別optgroup）
 function buildLessonOptions(selectedVal){
