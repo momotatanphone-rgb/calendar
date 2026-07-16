@@ -1038,6 +1038,15 @@ function renderWeek(){
       const isT=d.toDateString()===today.toDateString();
       const noC=i===0&&p===5;
       const ds=iso(d);
+      // 長期休暇中はコマを表示しない
+      if(isVacation(ds)){
+        const vcell=document.createElement('div');
+        vcell.className='wgc nc';
+        vcell.style.cssText='background:var(--amber-l);opacity:.45;display:flex;align-items:center;justify-content:center';
+        if(p===0){ vcell.innerHTML=`<span style="font-size:10px;color:var(--amber);writing-mode:vertical-rl">🏖️${vacationName(ds)}</span>`; }
+        grid.appendChild(vcell);
+        return;
+      }
       const data=noC?null:getCellData(DK[i],p+1,ds);
       const cell=document.createElement('div');
 
@@ -3859,6 +3868,9 @@ function renderDashboard(){
   lessonsEl.innerHTML='';
   if(di<0||di>4){
     lessonsEl.innerHTML='<div style="font-size:12px;color:var(--txt3);padding:8px">今日は授業がありません（休日）</div>';
+  } else if(isVacation(ds)){
+    lessonsEl.innerHTML=`<div style="font-size:13px;color:var(--amber);padding:12px;background:var(--amber-l);border-radius:8px">🏖️ ${vacationName(ds)}中です</div>`;
+    document.getElementById('dash-sub').textContent=vacationName(ds);
   } else {
     const maxP=di===0?5:6;
     let count=0;
@@ -4011,25 +4023,45 @@ function renderDocsPage(){
 }
 
 
-// ── 理科室設定 ──
+// ── 理科室設定（コマ単位グリッド） ──
 function renderScienceRoomWeekly(){
-  const el=document.getElementById('science-room-weekly');
+  const el=document.getElementById('science-room-grid');
   if(!el) return;
   el.innerHTML='';
-  const days=[['mon','月'],['tue','火'],['wed','水'],['thu','木'],['fri','金']];
-  days.forEach(([dk,label])=>{
-    const on=!!(S.scienceRoomWeekly&&S.scienceRoomWeekly[dk]);
-    const lbl=document.createElement('label');
-    lbl.style.cssText='display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer';
-    lbl.innerHTML=`<input type="checkbox" ${on?'checked':''} style="accent-color:var(--teal);width:16px;height:16px"/> ${label}`;
-    lbl.querySelector('input').onchange=(e)=>{
-      if(!S.scienceRoomWeekly) S.scienceRoomWeekly={};
-      S.scienceRoomWeekly[dk]=e.target.checked;
-      autoSave();
-      renderWeekSchedGrid(_lastDates||[]);
-    };
-    el.appendChild(lbl);
+  const tbl=document.createElement('table');
+  tbl.style.cssText='border-collapse:separate;border-spacing:3px;width:100%;font-size:12px';
+  const thead=tbl.createTHead();
+  const hr=thead.insertRow();
+  ['',...DJ].forEach(t=>{
+    const th=document.createElement('th');
+    th.textContent=t;
+    th.style.cssText='padding:4px;font-size:11px;color:var(--txt3);font-weight:500';
+    hr.appendChild(th);
   });
+  const tbody=tbl.createTBody();
+  for(let p=1;p<=6;p++){
+    const tr=tbody.insertRow();
+    const tdP=tr.insertCell();
+    tdP.textContent=p;
+    tdP.style.cssText='padding:4px;text-align:center;font-size:11px;color:var(--txt3)';
+    for(let di=0;di<5;di++){
+      const td=tr.insertCell();
+      if(di===0&&p===6){ td.style.cssText='background:var(--bg2);opacity:.3;border-radius:4px'; continue; }
+      const key=DK[di]+'-'+p;
+      const on=!!(S.scienceRoomSlots&&S.scienceRoomSlots[key]);
+      td.style.cssText=`padding:8px 6px;text-align:center;cursor:pointer;border:0.5px solid ${on?'var(--teal)':'var(--border)'};border-radius:4px;${on?'background:var(--teal-l)':'background:var(--bg2)'}`;
+      td.textContent=on?'🧪':'';
+      td.onclick=()=>{
+        if(!S.scienceRoomSlots) S.scienceRoomSlots={};
+        if(S.scienceRoomSlots[key]) delete S.scienceRoomSlots[key];
+        else S.scienceRoomSlots[key]=true;
+        autoSave();
+        renderScienceRoomWeekly();
+        renderWeek();
+      };
+    }
+  }
+  el.appendChild(tbl);
 }
 
 // ── 長期休暇 ──
