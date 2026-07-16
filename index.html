@@ -564,7 +564,7 @@ window.addEventListener('error', function(e){
 
   <div class="sec">
     <div class="sec-ttl" style="display:flex;align-items:center;gap:8px">
-      <span>📚 授業計画・単元進度</span>
+      <span>📚 授業計画（分野別）</span>
       
     </div>
     <div style="font-size:11px;color:var(--txt3);margin-bottom:8px">1時間ごとに授業内容を入力し、クラスごとに「どこまで進んだか」を●で管理します。時間割コマに現在の授業内容が自動表示されます。</div>
@@ -583,7 +583,25 @@ window.addEventListener('error', function(e){
   </div>
 
   <!-- バックアップ -->
+    <div class="sec">
+    <div class="sec-ttl">🧪 理科室の設定</div>
+    <div style="font-size:11px;color:var(--txt3);margin-bottom:8px">理科室が優先的に使える曜日にチェック。週表示の日付をタップで個別に変更できます。</div>
+    <div id="science-room-weekly" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+  </div>
+
   <div class="sec">
+    <div class="sec-ttl">🏖️ 長期休暇</div>
+    <div style="font-size:11px;color:var(--txt3);margin-bottom:8px">休暇期間中は授業内容の自動入力をスキップします。</div>
+    <div id="vacation-list" style="margin-bottom:8px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:center">
+      <input type="text" id="vac-name" placeholder="名前（例:夏休み）" style="font-size:12px;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none"/>
+      <input type="date" id="vac-start" style="font-size:12px;padding:5px 6px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none"/>
+      <input type="date" id="vac-end" style="font-size:12px;padding:5px 6px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none"/>
+      <button class="addbtn" style="margin-top:0;white-space:nowrap" onclick="addVacation()">＋ 追加</button>
+    </div>
+  </div>
+
+<div class="sec">
     <div class="sec-ttl">💾 データのバックアップ</div>
     <div class="backup-row">
       <button class="backup-btn save" onclick="backupSave()">💾 端末に保存</button>
@@ -814,7 +832,11 @@ const S_DEFAULT = {
   classList:['3-2','3-3','3-4','3-5'],
   mainSubject:'理科',
   todos:[],
-  deletedGcalIds:[],  // 削除済みイベントID（再取込防止）
+  deletedGcalIds:[],
+  lessonPlans:{'化学':[],'生物':[],'物理':[],'地学':[],'その他':[]},  // 分野別授業計画
+  scienceRoomWeekly:{mon:true,tue:true,wed:true,thu:true,fri:true},  // 理科室が使える曜日
+  scienceRoomOv:{},   // 日付ごとの理科室上書き {ds:true/false}
+  vacations:[],       // 長期休暇 [{id,name,start,end}]
 };
 
 // localStorageから読み込み、なければデフォルト値を使用
@@ -831,6 +853,16 @@ function loadState(){
       if(!merged.todos) merged.todos=[];
       if(!merged.deletedGcalIds) merged.deletedGcalIds=[];
       if(!merged.lessonStart) merged.lessonStart={};
+      if(!merged.lessonPlans) merged.lessonPlans={'化学':[],'生物':[],'物理':[],'地学':[],'その他':[]};
+      ['化学','生物','物理','地学','その他'].forEach(c=>{ if(!merged.lessonPlans[c]) merged.lessonPlans[c]=[]; });
+      // 旧lessonPlanを化学へ移行（1回のみ）
+      if(merged.lessonPlan&&merged.lessonPlan.length>0&&merged.lessonPlans['化学'].length===0&&!merged._planMigrated){
+        merged.lessonPlans['化学']=merged.lessonPlan.map(u=>({id:u.id,content:u.content||''}));
+        merged._planMigrated=true;
+      }
+      if(!merged.scienceRoomWeekly) merged.scienceRoomWeekly={mon:true,tue:true,wed:true,thu:true,fri:true};
+      if(!merged.scienceRoomOv) merged.scienceRoomOv={};
+      if(!merged.vacations) merged.vacations=[];
       if(!merged.testEvents) merged.testEvents=[];
       return merged;
     }
@@ -998,13 +1030,13 @@ function renderWeek(){
           </div>
         `;
         // 授業内容を表示
-        if(data.subj===(S.mainSubject||'')&&S.lessonPlan&&S.lessonPlan.length>0){
+        if(data.subj===(S.mainSubject||'')&&totalPlanCount()>0){
           const cur = getCurrentUnit(data.cls, ds, DK[i], String(p+1));
           if(cur){
             const unitDiv = document.createElement('div');
             unitDiv.className = 'chip-unit';
             unitDiv.style.color = c.fg;
-            unitDiv.textContent = `第${cur.idx+1}時${cur.unit.content?' '+cur.unit.content:''}`;
+            unitDiv.textContent = cur.idx>=0 ? lessonLabel(cur.cat,cur.idx,cur.unit.content) : (cur.unit.content||'');
             chip.appendChild(unitDiv);
           }
         } else if(data.subMemo){
@@ -1243,15 +1275,12 @@ function openCM(key,title,isTT,ds,dk2,pp){
   const openedSubj=currentSubj||(data?.subj||'');
   const subMemoWrap=document.getElementById('cm-sub-memo-wrap');
   const subMemoEl=document.getElementById('cm-sub-memo');
-  if(S.lessonPlan && S.lessonPlan.length>0 && !isTT && openedSubj===(S.mainSubject||'')){
+  if(totalPlanCount()>0 && !isTT && openedSubj===(S.mainSubject||'')){
     lessonWrap.style.display='block';
     if(subMemoWrap) subMemoWrap.style.display='none';
     const cur2 = cls ? getCurrentUnit(cls, ds, dk2, String(pp)) : null;
-    const curIdx = cur2 ? cur2.idx : 0;
-    lessonSel.innerHTML = '<option value="">-- 授業内容を選択 --</option>' + S.lessonPlan.map((u,i)=>{
-      const label = `第${i+1}時 ${u.content||'（内容未設定）'}`;
-      return `<option value="${i}"${i===curIdx?' selected':''}>${label}</option>`;
-    }).join('');
+    const curVal = cur2&&cur2.idx>=0 ? cur2.cat+'|'+cur2.idx : '';
+    lessonSel.innerHTML = buildLessonOptions(curVal);
   } else {
     lessonWrap.style.display='none';
     lessonSel.innerHTML='';
@@ -1271,13 +1300,11 @@ function openCM(key,title,isTT,ds,dk2,pp){
     const s3=v.split('__')[0];
     const lw=document.getElementById('cm-lesson-wrap');
     const ls=document.getElementById('cm-lesson');
-    if(S.lessonPlan&&S.lessonPlan.length>0&&!editIsTT&&s3===(S.mainSubject||'')){
+    if(totalPlanCount()>0&&!editIsTT&&s3===(S.mainSubject||'')){
       lw.style.display='block';
       const cur=getCurrentUnit(c,_ds,_dk,String(_pp));
-      const ci=cur?cur.idx:0;
-      ls.innerHTML='<option value="">-- 授業内容を選択 --</option>'+S.lessonPlan.map((u,i)=>
-        `<option value="${i}"${i===ci?' selected':''}>${'第'+(i+1)+'時 '+(u.content||'（未設定）')}</option>`
-      ).join('');
+      const cv=cur&&cur.idx>=0?cur.cat+'|'+cur.idx:'';
+      ls.innerHTML=buildLessonOptions(cv);
       syncLessonInput();
     } else {
       lw.style.display='none';
@@ -1298,9 +1325,9 @@ function openCM(key,title,isTT,ds,dk2,pp){
       const ck0=_ds+'-'+_dk+'-'+String(_pp);
       if(!S.lessonCellMap) S.lessonCellMap={};
       if(S.lessonCellMap[ck0]!==undefined){
-        const idx0=S.lessonCellMap[ck0];
-        if(typeof idx0==='string'&&isNaN(idx0)) ltInput.value=idx0;
-        else if(S.lessonPlan[idx0]) ltInput.value=S.lessonPlan[idx0].content||'';
+        const pv=parseLessonVal(S.lessonCellMap[ck0]);
+        if(pv&&pv.text!==undefined) ltInput.value=pv.text;
+        else if(pv){ const a=getPlanArr(pv.cat); ltInput.value=a[pv.idx]?.content||''; }
         else ltInput.value='';
       } else { ltInput.value=''; }
     } else { ltInput.value=''; }
@@ -1331,57 +1358,62 @@ function saveCM(){
 
     // 保存する値を決定（テキスト優先→ドロップダウン）
     let saveVal=null;
-    let selIdx=-1;
+    let saveCat=null, saveIdx=-1;
     if(textVal){
-      // 授業計画に一致するものがあればインデックスで保存、なければ文字列
-      const mi=S.lessonPlan.findIndex(u=>u.content===textVal);
-      saveVal = mi>=0 ? mi : textVal;
-      selIdx = mi>=0 ? mi : -1;
+      // 全分野から一致を探す
+      for(const cat of LESSON_CATS){
+        const mi=getPlanArr(cat).findIndex(u=>u.content===textVal);
+        if(mi>=0){ saveCat=cat; saveIdx=mi; break; }
+      }
+      saveVal = saveCat ? saveCat+'|'+saveIdx : textVal;
     } else if(selVal!==''){
-      selIdx=parseInt(selVal);
-      saveVal=selIdx;
+      const pv=parseLessonVal(selVal);
+      if(pv&&pv.cat){ saveCat=pv.cat; saveIdx=pv.idx; saveVal=pv.cat+'|'+pv.idx; }
     }
 
     if(saveVal!==null){
       S.lessonCellMap[ck]=saveVal;
 
-      // メイン教科のみ次のコマに自動入力
-      if(subj===(S.mainSubject||'')){
-        let nxt=selIdx>=0 ? Math.min(selIdx+1,(S.lessonPlan.length||1)-1) : null;
-        if(nxt!==null){
-          // 今週の後続コマ
-          if(_lastDates&&Array.isArray(_lastDates)&&cls){
-            let found=false;
-            for(let di=0;di<_lastDates.length;di++){
-              const ds2=iso(_lastDates[di]); const maxP=di===0?5:6;
-              for(let p2=1;p2<=maxP;p2++){
-                const ck2=ds2+'-'+DK[di]+'-'+String(p2);
-                if(ck2===ck){found=true;continue;}
-                if(!found) continue;
-                const d2=getCellData(DK[di],p2,ds2);
-                if(d2&&d2.cls===cls&&d2.subj===subj){
-                  S.lessonCellMap[ck2]=Math.min(nxt,(S.lessonPlan.length||1)-1);
-                  nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
-                }
+      // メイン教科のみ、同分野内で次のコマに自動入力（休暇はスキップ）
+      if(subj===(S.mainSubject||'')&&saveCat&&saveIdx>=0){
+        const catArr=getPlanArr(saveCat);
+        const maxIdx=(catArr.length||1)-1;
+        let nxt=Math.min(saveIdx+1,maxIdx);
+        // 今週の後続コマ
+        if(_lastDates&&Array.isArray(_lastDates)&&cls){
+          let found=false;
+          for(let di=0;di<_lastDates.length;di++){
+            const ds2=iso(_lastDates[di]); const maxP=di===0?5:6;
+            if(isVacation(ds2)){ if(ds2>_ds)continue; }
+            for(let p2=1;p2<=maxP;p2++){
+              const ck2=ds2+'-'+DK[di]+'-'+String(p2);
+              if(ck2===ck){found=true;continue;}
+              if(!found) continue;
+              if(isVacation(ds2)) continue;
+              const d2=getCellData(DK[di],p2,ds2);
+              if(d2&&d2.cls===cls&&d2.subj===subj){
+                S.lessonCellMap[ck2]=saveCat+'|'+Math.min(nxt,maxIdx);
+                nxt=Math.min(nxt+1,maxIdx);
               }
             }
           }
-          // 次週〜16週先
-          if(cls&&_dk&&_pp){
-            const baseDate=new Date(_ds);
-            const ttData=S.tt[_dk+'-'+String(_pp)];
-            for(let w=1;w<=16;w++){
-              const futureDate=new Date(baseDate);
-              futureDate.setDate(baseDate.getDate()+w*7);
-              const fds=iso(futureDate);
-              const fck=fds+'-'+_dk+'-'+String(_pp);
-              const ovData=S.overrides[fds+'-'+_dk+'-'+String(_pp)];
-              const cellCls=ovData!==undefined?(ovData?ovData.cls:''):(ttData?ttData.cls:'');
-              const cellSubj=ovData!==undefined?(ovData?ovData.subj:''):(ttData?ttData.subj:'');
-              if(cellCls===cls&&cellSubj===subj){
-                S.lessonCellMap[fck]=Math.min(nxt,(S.lessonPlan.length||1)-1);
-                nxt=Math.min(nxt+1,(S.lessonPlan.length||1)-1);
-              }
+        }
+        // 次週〜16週先（休暇の日はスキップ）
+        if(cls&&_dk&&_pp){
+          const baseDate=new Date(_ds);
+          const ttData=S.tt[_dk+'-'+String(_pp)];
+          for(let w=1;w<=16;w++){
+            const futureDate=new Date(baseDate);
+            futureDate.setDate(baseDate.getDate()+w*7);
+            const fds=iso(futureDate);
+            if(isVacation(fds)) continue; // 休暇中は入れない
+            const fck=fds+'-'+_dk+'-'+String(_pp);
+            const ovData=S.overrides[fds+'-'+_dk+'-'+String(_pp)];
+            const cellCls=ovData!==undefined?(ovData?ovData.cls:''):(ttData?ttData.cls:'');
+            const cellSubj=ovData!==undefined?(ovData?ovData.subj:''):(ttData?ttData.subj:'');
+            if(cellCls===cls&&cellSubj===subj){
+              S.lessonCellMap[fck]=saveCat+'|'+Math.min(nxt,maxIdx);
+              nxt=Math.min(nxt+1,maxIdx);
             }
           }
         }
@@ -1489,7 +1521,11 @@ function renderWeekSchedGrid(dates){
     // 列ヘッダー（曜日 + ＋ボタン）
     const hdr=document.createElement('div');
     hdr.className='wsd-col-hdr'+(isToday?' today':'');
-    hdr.innerHTML=`<span>${DJ[i]} ${fmt(d)}</span><button class="wsd-add-btn" onclick="openSchedModal('${ds}')" title="予定を追加">＋</button>`;
+    const isVac=isVacation(ds);
+    const sciOk=isScienceRoomDay(ds,DK[i]);
+    const sciBadge=`<span onclick="event.stopPropagation();toggleScienceRoomOv('${ds}','${DK[i]}')" title="${sciOk?'理科室 使用可（タップで変更）':'理科室 使用不可（タップで変更）'}" style="cursor:pointer;font-size:10px;padding:1px 5px;border-radius:99px;margin-left:4px;${sciOk?'background:var(--teal-l);color:var(--teal-m);border:0.5px solid var(--teal)':'background:var(--bg2);color:var(--txt3);border:0.5px solid var(--border2);opacity:.6;text-decoration:line-through'}">🧪</span>`;
+    const vacBadge=isVac?`<span style="font-size:9px;padding:1px 5px;border-radius:99px;background:var(--amber-l);color:var(--amber);border:0.5px solid var(--amber);margin-left:3px">🏖️${vacationName(ds)}</span>`:'';
+    hdr.innerHTML=`<span>${DJ[i]} ${fmt(d)}${sciBadge}${vacBadge}</span><button class="wsd-add-btn" onclick="openSchedModal('${ds}')" title="予定を追加">＋</button>`;
     col.appendChild(hdr);
 
     const body=document.createElement('div');
@@ -2150,7 +2186,7 @@ function deleteDocFromViewer(){
 }
 
 // ── 設定 ──
-function renderSettings(){renderTT();renderSubjects();renderClassList();recalcLessonLog();renderPlanList();renderCountdowns();renderBackupHistory();
+function renderSettings(){renderTT();renderSubjects();renderClassList();recalcLessonLog();renderPlanList();renderCountdowns();renderBackupHistory();renderScienceRoomWeekly();renderVacationList();
   // localStorage状態表示
   try{
     const saved = localStorage.getItem('jugyo_kanri_data');
@@ -2260,9 +2296,10 @@ function syncLessonInput(){
   const sel=document.getElementById('cm-lesson');
   const inp=document.getElementById('cm-lesson-text');
   if(!sel||!inp) return;
-  const idx=parseInt(sel.value);
-  if(!isNaN(idx)&&S.lessonPlan[idx]){
-    inp.value=S.lessonPlan[idx].content||'';
+  const pv=parseLessonVal(sel.value);
+  if(pv&&pv.cat!==undefined&&pv.idx!==undefined){
+    const a=getPlanArr(pv.cat);
+    inp.value=a[pv.idx]?.content||'';
   } else if(sel.value===''){
     inp.value='';
   }
@@ -3778,9 +3815,9 @@ function renderDashboard(){
         const subj=S.subjects.find(s=>s.name===data.subj);
         const c=clsIdx>=0?COLS[clsIdx%COLS.length]:(subj?COLS[subj.ci%COLS.length]:COLS[0]);
         let unitStr='';
-        if(data.subj===(S.mainSubject||'')&&S.lessonPlan&&S.lessonPlan.length>0){
+        if(data.subj===(S.mainSubject||'')&&totalPlanCount()>0){
           const cur=getCurrentUnit(data.cls,ds,DK[di],String(p));
-          if(cur) unitStr=`第${cur.idx+1}時${cur.unit.content?' '+cur.unit.content:''}`;
+          if(cur) unitStr=cur.idx>=0?lessonLabel(cur.cat,cur.idx,cur.unit.content):(cur.unit.content||'');
         } else if(data.subMemo){
           unitStr=data.subMemo;
         }
@@ -3917,6 +3954,78 @@ function renderDocsPage(){
   });
 }
 
+
+// ── 理科室設定 ──
+function renderScienceRoomWeekly(){
+  const el=document.getElementById('science-room-weekly');
+  if(!el) return;
+  el.innerHTML='';
+  const days=[['mon','月'],['tue','火'],['wed','水'],['thu','木'],['fri','金']];
+  days.forEach(([dk,label])=>{
+    const on=!!(S.scienceRoomWeekly&&S.scienceRoomWeekly[dk]);
+    const lbl=document.createElement('label');
+    lbl.style.cssText='display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer';
+    lbl.innerHTML=`<input type="checkbox" ${on?'checked':''} style="accent-color:var(--teal);width:16px;height:16px"/> ${label}`;
+    lbl.querySelector('input').onchange=(e)=>{
+      if(!S.scienceRoomWeekly) S.scienceRoomWeekly={};
+      S.scienceRoomWeekly[dk]=e.target.checked;
+      autoSave();
+      renderWeekSchedGrid(_lastDates||[]);
+    };
+    el.appendChild(lbl);
+  });
+}
+
+// ── 長期休暇 ──
+function renderVacationList(){
+  const el=document.getElementById('vacation-list');
+  if(!el) return;
+  el.innerHTML='';
+  if(!S.vacations||S.vacations.length===0){
+    el.innerHTML='<div style="font-size:12px;color:var(--txt3)">休暇が登録されていません</div>';
+    return;
+  }
+  S.vacations.forEach((v,i)=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg2);border-radius:var(--r);margin-bottom:4px;font-size:13px';
+    row.innerHTML=`<span style="font-weight:600">🏖️ ${v.name}</span>
+      <span style="color:var(--txt3);font-size:11px;flex:1">${v.start} 〜 ${v.end}</span>
+      <button onclick="deleteVacation(${i})" style="background:none;border:none;cursor:pointer;color:var(--coral);font-size:13px">✕</button>`;
+    el.appendChild(row);
+  });
+}
+
+function addVacation(){
+  const name=(document.getElementById('vac-name')?.value||'').trim();
+  const start=document.getElementById('vac-start')?.value;
+  const end=document.getElementById('vac-end')?.value;
+  if(!name||!start||!end){ alert('名前・開始日・終了日をすべて入力してください'); return; }
+  if(start>end){ alert('開始日が終了日より後になっています'); return; }
+  if(!S.vacations) S.vacations=[];
+  S.vacations.push({id:Date.now(),name,start,end});
+  S.vacations.sort((a,b)=>a.start.localeCompare(b.start));
+  document.getElementById('vac-name').value='';
+  document.getElementById('vac-start').value='';
+  document.getElementById('vac-end').value='';
+  autoSave();
+  renderVacationList();
+  renderWeek();
+}
+
+function deleteVacation(i){
+  if(!S.vacations) return;
+  S.vacations.splice(i,1);
+  autoSave();
+  renderVacationList();
+  renderWeek();
+}
+
+
+function toggleDocStripEl(el){
+  if(!el) return;
+  el.style.display = el.style.display==='none' ? 'flex' : 'none';
+}
+
 // ── リアルタイム同期 ──
 
 function gcalScheduleTokenRefresh(){
@@ -4030,14 +4139,6 @@ document.addEventListener('visibilitychange',()=>{
 let _planDragIdx=null;
 // lessonPlan: [{id, content, progress:{cls: true/false}}]
 
-function addPlanUnit(){
-  const classes = getUniqueClasses();
-  const progress = {};
-  classes.forEach(c => progress[c] = false);
-  S.lessonPlan.push({id: Date.now(), content: '', progress});
-  renderPlanList();
-}
-
 function getUniqueClasses(){
   // S.classList を優先、なければ既存データから収集
   if(S.classList && S.classList.length>0) return [...S.classList].sort();
@@ -4048,145 +4149,194 @@ function getUniqueClasses(){
   return [...set].sort();
 }
 
-// コマの授業内容を返す
-function getCurrentUnit(cls, cellDs, cellDk, cellPp){
-  if(!S.lessonPlan||S.lessonPlan.length===0) return null;
-  if(!S.lessonCellMap) S.lessonCellMap={};
-  if(!cellDs||!cellDk||cellPp===undefined) return {unit:S.lessonPlan[0],idx:0};
-  const key=cellDs+'-'+cellDk+'-'+String(cellPp);
-  if(S.lessonCellMap[key]!==undefined){
-    const val=S.lessonCellMap[key];
-    // 文字列で直接保存されている場合
-    if(typeof val==='string'&&isNaN(Number(val))){
-      return {unit:{content:val},idx:-1};
+
+// ── 分野別授業計画ヘルパー ──
+const LESSON_CATS=['化学','生物','物理','地学','その他'];
+function getPlanArr(cat){ if(!S.lessonPlans)S.lessonPlans={}; if(!S.lessonPlans[cat])S.lessonPlans[cat]=[]; return S.lessonPlans[cat]; }
+function totalPlanCount(){ return LESSON_CATS.reduce((s,c)=>s+getPlanArr(c).length,0); }
+// lessonCellMap値を解釈: 'cat|idx' | 数値(旧=化学) | 文字列(自由入力)
+function parseLessonVal(val){
+  if(val===undefined||val===null) return null;
+  if(typeof val==='number') return {cat:'化学', idx:val};
+  if(typeof val==='string'){
+    if(val.includes('|')){
+      const [cat,i]=val.split('|');
+      if(LESSON_CATS.includes(cat)&&!isNaN(Number(i))) return {cat, idx:Number(i)};
     }
-    const idx=Math.min(Number(val),S.lessonPlan.length-1);
-    return {unit:S.lessonPlan[idx],idx};
+    if(!isNaN(Number(val))) return {cat:'化学', idx:Number(val)};
+    return {text:val};
   }
-  return {unit:S.lessonPlan[0],idx:0};
+  return null;
+}
+function lessonLabel(cat, idx, content){
+  return `${cat.charAt(0)}${idx+1} ${content||'（未設定）'}`;
 }
 
+// ── 長期休暇 ──
+function isVacation(ds){
+  return (S.vacations||[]).some(v=>v.start&&v.end&&ds>=v.start&&ds<=v.end);
+}
+function vacationName(ds){
+  const v=(S.vacations||[]).find(v=>v.start&&v.end&&ds>=v.start&&ds<=v.end);
+  return v?v.name:'';
+}
+
+// ── 理科室 ──
+function isScienceRoomDay(ds, dk){
+  if(S.scienceRoomOv&&S.scienceRoomOv[ds]!==undefined) return S.scienceRoomOv[ds];
+  return !!(S.scienceRoomWeekly&&S.scienceRoomWeekly[dk]);
+}
+function toggleScienceRoomOv(ds, dk){
+  if(!S.scienceRoomOv) S.scienceRoomOv={};
+  const cur=isScienceRoomDay(ds,dk);
+  S.scienceRoomOv[ds]=!cur;
+  autoSave();
+  renderWeekSchedGrid(_lastDates||[]);
+}
+
+// ドロップダウンHTML生成（分野別optgroup）
+function buildLessonOptions(selectedVal){
+  let html='<option value="">-- 授業内容を選択 --</option>';
+  LESSON_CATS.forEach(cat=>{
+    const arr=getPlanArr(cat);
+    if(arr.length===0) return;
+    html+=`<optgroup label="${cat}">`;
+    arr.forEach((u,i)=>{
+      const v=cat+'|'+i;
+      html+=`<option value="${v}"${v===selectedVal?' selected':''}>第${i+1}時 ${u.content||'（未設定）'}</option>`;
+    });
+    html+='</optgroup>';
+  });
+  return html;
+}
+
+// コマの授業内容を返す（分野対応）
+function getCurrentUnit(cls, cellDs, cellDk, cellPp){
+  if(totalPlanCount()===0) return null;
+  if(!S.lessonCellMap) S.lessonCellMap={};
+  if(!cellDs||!cellDk||cellPp===undefined) return null;
+  const key=cellDs+'-'+cellDk+'-'+String(cellPp);
+  if(S.lessonCellMap[key]===undefined) return null;
+  const p=parseLessonVal(S.lessonCellMap[key]);
+  if(!p) return null;
+  if(p.text!==undefined) return {unit:{content:p.text},idx:-1,cat:''};
+  const arr=getPlanArr(p.cat);
+  if(arr.length===0) return {unit:{content:''},idx:-1,cat:p.cat};
+  const idx=Math.min(p.idx,arr.length-1);
+  return {unit:arr[idx],idx,cat:p.cat};
+}
+
+
+let _planActiveCat='化学';
+function setPlanCat(cat){ _planActiveCat=cat; renderPlanList(); }
 
 function renderPlanList(){
   const list = document.getElementById('plan-list');
   if(!list) return;
   list.innerHTML = '';
-  const classes = getUniqueClasses();
+
+  // 分野タブ
+  const tabs=document.createElement('div');
+  tabs.style.cssText='display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap';
+  LESSON_CATS.forEach(cat=>{
+    const n=getPlanArr(cat).length;
+    const btn=document.createElement('button');
+    const on=cat===_planActiveCat;
+    btn.style.cssText=`font-size:12px;padding:5px 12px;border-radius:99px;cursor:pointer;border:0.5px solid ${on?'var(--teal)':'var(--border2)'};background:${on?'var(--teal-l)':'none'};color:${on?'var(--teal-m)':'var(--txt2)'};font-weight:${on?'600':'400'}`;
+    btn.textContent=`${cat}${n>0?` (${n})`:''}`;
+    btn.onclick=()=>setPlanCat(cat);
+    tabs.appendChild(btn);
+  });
+  list.appendChild(tabs);
+
+  const cat=_planActiveCat;
+  const arr=getPlanArr(cat);
 
   const wrap = document.createElement('div');
   wrap.className = 'plan-wrap';
   const tbl = document.createElement('table');
   tbl.className = 'plan-table';
-
-  // ヘッダー行
   const thead = tbl.createTHead();
   const hr = thead.insertRow();
-  ['','第○時','授業内容', ...classes].forEach((t,i)=>{
+  ['','第○時','授業内容'].forEach(t=>{
     const th = document.createElement('th');
     th.textContent = t;
-    if(i>=3) th.className='cls-th';
     hr.appendChild(th);
   });
 
-  // データ行
   const tbody = tbl.createTBody();
-
-  if(!S.lessonPlan||S.lessonPlan.length===0){
+  if(arr.length===0){
     const tr = tbody.insertRow();
-    const td = tr.insertCell(); td.colSpan = 3+classes.length;
+    const td = tr.insertCell(); td.colSpan = 3;
     td.style.cssText='font-size:12px;color:var(--txt3);padding:10px 6px';
-    td.textContent = '「＋ 授業を追加」で1時間分の内容を入力してください';
+    td.textContent = `「＋ ${cat}の授業を追加」で1時間分の内容を入力してください`;
   } else {
-    // 各クラスの現在地を取得（lessonProgressベース）
-    const curIdxMap = {};
-    classes.forEach(cls=>{ const c=getCurrentUnit(cls,null,null,null); curIdxMap[cls]=c?c.idx:0; });
-
-    S.lessonPlan.forEach((u,idx)=>{
+    arr.forEach((u,idx)=>{
       const tr = tbody.insertRow();
       tr.className='plan-drag-row';
       tr.draggable=true;
-      tr.dataset.idx=idx;
-      tr.addEventListener('dragstart',e=>{
-        _planDragIdx=idx;
-        e.dataTransfer.effectAllowed='move';
-        tr.classList.add('dragging-row');
-      });
+      tr.addEventListener('dragstart',e=>{ _planDragIdx=idx; e.dataTransfer.effectAllowed='move'; tr.classList.add('dragging-row'); });
       tr.addEventListener('dragend',()=>tr.classList.remove('dragging-row'));
       tr.addEventListener('dragover',e=>{e.preventDefault();tr.classList.add('drag-over-row');});
       tr.addEventListener('dragleave',()=>tr.classList.remove('drag-over-row'));
       tr.addEventListener('drop',e=>{
         e.preventDefault();tr.classList.remove('drag-over-row');
         if(_planDragIdx===null||_planDragIdx===idx)return;
-        const moved=S.lessonPlan.splice(_planDragIdx,1)[0];
-        S.lessonPlan.splice(idx,0,moved);
+        const moved=arr.splice(_planDragIdx,1)[0];
+        arr.splice(idx,0,moved);
         _planDragIdx=null;
         renderPlanList();renderWeek();autoSave();
       });
 
-      // 削除・上下ボタン
       const tdDel = tr.insertCell(); tdDel.className='plan-num-td';
       tdDel.style.cssText='white-space:nowrap;min-width:72px';
       tdDel.innerHTML=`
         <span style="cursor:grab;font-size:14px;color:var(--txt3);margin-right:4px;vertical-align:middle">⠿</span>
         <button class="plan-del-btn" title="上へ" onclick="movePlanLesson(${idx},-1)" ${idx===0?'disabled style="opacity:.2"':''} style="font-size:12px;margin-right:1px">▲</button>
-        <button class="plan-del-btn" title="下へ" onclick="movePlanLesson(${idx},1)" ${idx===S.lessonPlan.length-1?'disabled style="opacity:.2"':''} style="font-size:12px;margin-right:2px">▼</button>
+        <button class="plan-del-btn" title="下へ" onclick="movePlanLesson(${idx},1)" ${idx===arr.length-1?'disabled style="opacity:.2"':''} style="font-size:12px;margin-right:2px">▼</button>
         <button class="plan-del-btn" onclick="deletePlanLesson(${idx})" style="color:var(--coral)">✕</button>
       `;
 
-      // 第○時
       const tdNum = tr.insertCell(); tdNum.className='plan-num-td';
       tdNum.textContent = `第${idx+1}時`;
 
-      // 授業内容
       const tdContent = tr.insertCell();
       const input = document.createElement('input');
       input.type='text'; input.className='plan-content-input';
       input.value = u.content||'';
       input.placeholder = '授業内容を入力';
-      input.onchange = ()=>{ S.lessonPlan[idx].content=input.value; renderWeek(); };
+      input.onchange = ()=>{ arr[idx].content=input.value; renderWeek(); autoSave(); };
       tdContent.appendChild(input);
-
-      // クラス別：現在地マーク（●）だけ表示、操作不要
-      classes.forEach(cls=>{
-        const tdCls = tr.insertCell(); tdCls.className='plan-cls-td';
-        const curIdx = curIdxMap[cls];
-        const isCur = curIdx===idx;
-        const isDone = curIdx>idx || curIdx===-1;
-        const span = document.createElement('span');
-        span.className='plan-cls-dot'+(isDone?' done':isCur?' current':'');
-        span.textContent = isDone?'✓':isCur?'▶':'';
-        span.title = isDone?'済み':isCur?'現在地（今日時点）':'未';
-        tdCls.appendChild(span);
-      });
     });
   }
 
   wrap.appendChild(tbl);
   list.appendChild(wrap);
 
-  // ＋ボタン
   const addBtn = document.createElement('button');
   addBtn.className='addbtn'; addBtn.style.marginTop='8px';
-  addBtn.textContent='＋ 授業を追加';
+  addBtn.textContent=`＋ ${cat}の授業を追加`;
   addBtn.onclick = addPlanUnit;
   list.appendChild(addBtn);
 }
 
+function addPlanUnit(){
+  getPlanArr(_planActiveCat).push({id: Date.now(), content: ''});
+  renderPlanList(); autoSave();
+}
+
 function deletePlanLesson(idx){
-  S.lessonPlan.splice(idx,1);
+  getPlanArr(_planActiveCat).splice(idx,1);
   renderPlanList(); renderWeek(); autoSave();
 }
 
 function movePlanLesson(idx, dir){
+  const arr=getPlanArr(_planActiveCat);
   const newIdx = idx + dir;
-  if(newIdx < 0 || newIdx >= S.lessonPlan.length) return;
-  // 入れ替え
-  const tmp = S.lessonPlan[idx];
-  S.lessonPlan[idx] = S.lessonPlan[newIdx];
-  S.lessonPlan[newIdx] = tmp;
+  if(newIdx < 0 || newIdx >= arr.length) return;
+  const tmp = arr[idx]; arr[idx] = arr[newIdx]; arr[newIdx] = tmp;
   renderPlanList(); renderWeek(); autoSave();
 }
-
 
 // 全予定をGoogleカレンダーに書き出す
 async function gcalExportAll(){
