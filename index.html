@@ -354,7 +354,9 @@ window.addEventListener('error', function(e){
 <body>
 <div class="hdr">
   <div class="nav">
+    <button class="nb" onclick="showPg('dashboard',this)">🏠 今日</button>
     <button class="nb on" onclick="showPg('schedule',this)">📅 時間割</button>
+    <button class="nb" onclick="showPg('docs',this)">📄 書類</button>
     <button class="nb" onclick="showPg('settings',this)">⚙️ 設定</button>
     <div style="flex:1"></div>
     <button class="undo-btn" id="undo-btn" onclick="undoAction()" title="戻す"
@@ -453,6 +455,47 @@ window.addEventListener('error', function(e){
     </div>
     <div class="mgrid" id="mgrid"></div>
   </div>
+</div>
+
+
+<!-- 今日のダッシュボード -->
+<div class="pg" id="pg-dashboard">
+  <div id="dash-date" style="font-size:16px;font-weight:600;margin-bottom:2px"></div>
+  <div id="dash-sub" style="font-size:11px;color:var(--txt3);margin-bottom:12px"></div>
+
+  <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px">
+    <!-- 左: 今日の授業 -->
+    <div>
+      <div style="font-size:12px;font-weight:500;color:var(--txt2);margin-bottom:6px">📚 今日の授業</div>
+      <div id="dash-lessons" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+    <!-- 右: 予定とTODO -->
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <div style="font-size:12px;font-weight:500;color:var(--txt2);margin-bottom:6px">📋 今日の予定</div>
+        <div id="dash-scheds" style="display:flex;flex-direction:column;gap:4px"></div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:500;color:var(--txt2);margin-bottom:6px">✅ TODO</div>
+        <div id="dash-todos" style="display:flex;flex-direction:column;gap:2px"></div>
+      </div>
+      <div id="dash-countdown-wrap">
+        <div style="font-size:12px;font-weight:500;color:var(--txt2);margin-bottom:6px">📝 カウントダウン</div>
+        <div id="dash-countdowns" style="display:flex;flex-direction:column;gap:4px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 書類一覧ページ -->
+<div class="pg" id="pg-docs">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <span style="font-size:14px;font-weight:600">📄 書類一覧</span>
+    <span style="flex:1"></span>
+    <input type="text" id="docs-search" placeholder="🔍 書類名で検索" oninput="renderDocsPage()"
+      style="font-size:12px;padding:5px 10px;border:0.5px solid var(--border2);border-radius:99px;background:var(--bg2);color:var(--txt);outline:none;width:160px"/>
+  </div>
+  <div id="docs-page-list"></div>
 </div>
 
 <div class="pg" id="pg-settings">
@@ -873,6 +916,8 @@ function showPg(id,btn){
     // 時間割ページに戻ったとき常に再描画
     if(view==='week') renderWeek(); else renderMonth();
   }
+  if(id==='dashboard') renderDashboard();
+  if(id==='docs') renderDocsPage();
 }
 function goToday(){wOff=0;mOff=0;if(view==='week')renderWeek();else renderMonth();}
 function setView(v){
@@ -3703,6 +3748,173 @@ async function moveSchedItem(fromDs, idx, toDs){
       }
     }catch(e){ console.warn('タスク移動エラー:', e); }
   }
+}
+
+
+// ── 今日のダッシュボード ──
+function renderDashboard(){
+  const today=new Date();
+  const ds=iso(today);
+  const dow=today.getDay(); // 0=日
+  const di=dow===0?-1:dow-1; // 月=0
+
+  document.getElementById('dash-date').textContent=
+    `${today.getFullYear()}年${today.getMonth()+1}月${today.getDate()}日（${['日','月','火','水','木','金','土'][dow]}）`;
+
+  // 今日の授業
+  const lessonsEl=document.getElementById('dash-lessons');
+  lessonsEl.innerHTML='';
+  if(di<0||di>4){
+    lessonsEl.innerHTML='<div style="font-size:12px;color:var(--txt3);padding:8px">今日は授業がありません（休日）</div>';
+  } else {
+    const maxP=di===0?5:6;
+    let count=0;
+    for(let p=1;p<=maxP;p++){
+      const data=getCellData(DK[di],p,ds);
+      const row=document.createElement('div');
+      if(data){
+        count++;
+        const clsIdx=(S.classList||[]).indexOf(data.cls);
+        const subj=S.subjects.find(s=>s.name===data.subj);
+        const c=clsIdx>=0?COLS[clsIdx%COLS.length]:(subj?COLS[subj.ci%COLS.length]:COLS[0]);
+        let unitStr='';
+        if(data.subj===(S.mainSubject||'')&&S.lessonPlan&&S.lessonPlan.length>0){
+          const cur=getCurrentUnit(data.cls,ds,DK[di],String(p));
+          if(cur) unitStr=`第${cur.idx+1}時${cur.unit.content?' '+cur.unit.content:''}`;
+        } else if(data.subMemo){
+          unitStr=data.subMemo;
+        }
+        row.style.cssText=`display:flex;align-items:center;gap:10px;padding:10px 12px;background:${c.bg};border-left:3px solid ${c.b};border-radius:8px`;
+        row.innerHTML=`
+          <div style="font-size:18px;font-weight:700;color:${c.fg};min-width:24px;text-align:center">${p}</div>
+          <div style="flex:1">
+            <div style="font-size:14px;font-weight:600;color:${c.fg}">${data.subj||''} ${data.cls||''}</div>
+            ${unitStr?`<div style="font-size:11px;color:${c.fg};opacity:.85;margin-top:1px">${unitStr}</div>`:''}
+          </div>
+          ${data.room?`<div style="font-size:11px;color:${c.fg};opacity:.7">${data.room}</div>`:''}
+        `;
+        row.onclick=()=>{ showPg('schedule',document.querySelectorAll('.nb')[1]); };
+      } else {
+        row.style.cssText='display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg2);border-radius:8px;opacity:.5';
+        row.innerHTML=`<div style="font-size:14px;font-weight:600;min-width:24px;text-align:center;color:var(--txt3)">${p}</div><div style="font-size:12px;color:var(--txt3)">空き</div>`;
+      }
+      lessonsEl.appendChild(row);
+    }
+    if(count===0){
+      document.getElementById('dash-sub').textContent='今日の授業はありません';
+    } else {
+      document.getElementById('dash-sub').textContent=`授業 ${count}コマ`;
+    }
+  }
+
+  // 今日の予定
+  const schedsEl=document.getElementById('dash-scheds');
+  schedsEl.innerHTML='';
+  const scheds=(S.schedules&&S.schedules[ds])||[];
+  if(scheds.length===0){
+    schedsEl.innerHTML='<div style="font-size:11px;color:var(--txt3)">予定なし</div>';
+  } else {
+    scheds.forEach(item=>{
+      const t=TYPE_INFO[item.type]||TYPE_INFO.other;
+      const row=document.createElement('div');
+      row.style.cssText=`font-size:12px;padding:6px 10px;border-radius:6px;border-left:3px solid ${t.color};background:var(--bg2)`;
+      const timeStr=item.start?(item.end?`${item.start}〜${item.end} `:item.start+' '):'';
+      const doneStyle=item.done?'text-decoration:line-through;opacity:.5':'';
+      row.innerHTML=`<span style="${doneStyle}">${timeStr}${item.title||''}</span>`;
+      schedsEl.appendChild(row);
+    });
+  }
+
+  // TODO
+  const todosEl=document.getElementById('dash-todos');
+  todosEl.innerHTML='';
+  const todoItems=_gcalToken?_gTasksCache.filter(t=>t.status!=='completed').slice(0,5):(S.todos||[]).filter(t=>!t.done).slice(0,5);
+  if(todoItems.length===0){
+    todosEl.innerHTML='<div style="font-size:11px;color:var(--txt3)">TODOなし</div>';
+  } else {
+    todoItems.forEach(t=>{
+      const row=document.createElement('div');
+      row.style.cssText='font-size:12px;padding:4px 8px;display:flex;align-items:center;gap:6px';
+      row.innerHTML=`<span style="color:var(--teal-m)">•</span><span>${t.title||t.text||''}</span>`;
+      todosEl.appendChild(row);
+    });
+  }
+
+  // カウントダウン
+  const cdEl=document.getElementById('dash-countdowns');
+  cdEl.innerHTML='';
+  const now2=new Date(); now2.setHours(0,0,0,0);
+  const upcoming=(S.testEvents||[]).filter(ev=>{
+    const d=new Date(ev.date); d.setHours(0,0,0,0); return d>=now2;
+  }).slice(0,3);
+  if(upcoming.length===0){
+    document.getElementById('dash-countdown-wrap').style.display='none';
+  } else {
+    document.getElementById('dash-countdown-wrap').style.display='block';
+    upcoming.forEach(ev=>{
+      const d=new Date(ev.date); d.setHours(0,0,0,0);
+      const days=Math.ceil((d-now2)/(1000*60*60*24));
+      const color=days<=7?'var(--coral)':days<=14?'var(--amber)':'var(--teal-m)';
+      const row=document.createElement('div');
+      row.style.cssText=`font-size:12px;padding:6px 10px;border-radius:6px;background:var(--bg2);display:flex;justify-content:space-between`;
+      row.innerHTML=`<span>${ev.name}</span><b style="color:${color}">あと${days}日</b>`;
+      cdEl.appendChild(row);
+    });
+  }
+}
+
+// ── 書類一覧ページ ──
+function renderDocsPage(){
+  const el=document.getElementById('docs-page-list');
+  if(!el) return;
+  const query=(document.getElementById('docs-search')?.value||'').trim().toLowerCase();
+
+  // 日付ごとにグループ化（新しい順）
+  const groups=[];
+  if(S.docs){
+    Object.entries(S.docs).sort(([a],[b])=>b.localeCompare(a)).forEach(([ds,docs])=>{
+      const filtered=(docs||[]).filter(d=>!query||( d.name||'').toLowerCase().includes(query));
+      if(filtered.length>0) groups.push({ds,docs:filtered});
+    });
+  }
+
+  el.innerHTML='';
+  if(groups.length===0){
+    el.innerHTML='<div style="font-size:12px;color:var(--txt3);padding:20px;text-align:center">書類がありません</div>';
+    return;
+  }
+
+  groups.forEach(g=>{
+    const d=new Date(g.ds);
+    const sec=document.createElement('div');
+    sec.style.cssText='margin-bottom:16px';
+    const hdr=document.createElement('div');
+    hdr.style.cssText='font-size:12px;font-weight:600;color:var(--txt2);margin-bottom:6px;display:flex;align-items:center;gap:8px';
+    hdr.innerHTML=`<span>${d.getMonth()+1}/${d.getDate()}（${['日','月','火','水','木','金','土'][d.getDay()]}）</span>
+      <span style="font-size:10px;color:var(--txt3);font-weight:400">${g.docs.length}件</span>
+      <button onclick="exportDocsPdf('${g.ds}')" style="font-size:10px;padding:2px 8px;border-radius:99px;border:0.5px solid var(--blue);background:var(--blue-l);color:var(--blue);cursor:pointer">PDF</button>`;
+    sec.appendChild(hdr);
+    const grid=document.createElement('div');
+    grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px';
+    g.docs.forEach(doc=>{
+      const item=document.createElement('div');
+      item.style.cssText='display:flex;flex-direction:column;gap:3px;cursor:pointer';
+      let src=doc.img||'';
+      if(!src&&doc.driveId&&_drivePhotoUrlCache[doc.driveId]) src=_drivePhotoUrlCache[doc.driveId];
+      item.innerHTML=`
+        <img src="${src}" style="width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg2)" loading="lazy"/>
+        <div style="font-size:10px;color:var(--txt2);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${doc.name||'書類'}</div>`;
+      if(!src&&doc.driveId&&_gcalToken){
+        getDrivePhotoUrl(doc.driveId).then(url=>{
+          if(url){_drivePhotoUrlCache[doc.driveId]=url;const im=item.querySelector('img');if(im)im.src=url;}
+        });
+      }
+      item.onclick=()=>openDocViewerFromThumb({...doc,ds:g.ds});
+      grid.appendChild(item);
+    });
+    sec.appendChild(grid);
+    el.appendChild(sec);
+  });
 }
 
 // ── リアルタイム同期 ──
