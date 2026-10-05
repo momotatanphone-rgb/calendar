@@ -339,8 +339,9 @@ canvas{display:block}
 .doc-empty{font-size:11px;color:var(--txt3);padding:8px 2px}
 </style>
 <script>
-// 実行時エラーを画面に積み上げて表示（重ならないので全部読める）
+// 実行時エラーを画面に積み上げて表示 + 本体が読み込めないときの自己診断
 (function(){
+  var diagBusy = false;
   function box(){
     var b=document.getElementById('__errbox');
     if(!b){
@@ -357,12 +358,72 @@ canvas{display:block}
     box().appendChild(d);
     if(!sticky) setTimeout(function(){ d.remove(); }, 30000);
   }
+  function info(text){
+    var h=5381;
+    for(var i=0;i<text.length;i++){ h=((h<<5)+h+text.charCodeAt(i))|0; }
+    return text.split('\n').length+'行 / '+text.length+'文字 / h'+(h>>>0).toString(16);
+  }
+  function clip(s){ s=String(s==null?'':s); return s.length>110 ? s.slice(0,110)+'…' : s; }
+
   window.addEventListener('error', function(e){
+    if(diagBusy) return;
     show('エラー: '+(e.message||'')+' ('+(e.filename||'').split('/').pop()+':'+(e.lineno||'')+')');
   });
+
+  // 本体を「実行せず」構文だけ検査する（if(false){...} で包んで挿入）
+  function hasSyntaxError(t, onFound){
+    var fired=false;
+    function h(ev){ fired=true; if(onFound) onFound(ev); ev.preventDefault(); }
+    diagBusy=true;
+    window.addEventListener('error', h, true);
+    var s=document.createElement('script');
+    s.text='if(false){\n'+t+'\n}';
+    document.head.appendChild(s);
+    window.removeEventListener('error', h, true);
+    diagBusy=false;
+    s.remove();
+    return fired;
+  }
+
   window.addEventListener('load', function(){
-    if(typeof window.showPg==='undefined'){
-      show('本体スクリプトが読み込めていません。Apps Script の index に貼り付けた内容が途中で切れている可能性があります。ファイルの最後まで貼り付けられているか確認してください。', true);
+    if(typeof window.showPg!=='undefined') return;   // 本体が読めていれば何もしない
+    show('本体スクリプトが読み込めていません（構文エラー、または内容が変わっている可能性）。', true);
+    try{
+      var main=null, list=document.scripts;
+      for(var i=0;i<list.length;i++){ if(!main || list[i].text.length>main.text.length) main=list[i]; }
+      if(!main){ show('診断: 本体スクリプトが見つかりません', true); return; }
+      var text=main.text, lines=text.split('\n');
+      show('診断: 届いた本体は '+info(text), true);
+
+      // ① ブラウザが報告する行（スクリプト先頭からの行番号）
+      var reported=null;
+      var whole=hasSyntaxError(text, function(ev){ reported={ln:(ev.lineno||0)-1, col:ev.colno, msg:ev.message}; });
+      if(!whole){ show('診断: 構文エラーは再現できませんでした（実行時の問題の可能性）', true); return; }
+      if(reported){
+        var r=reported.ln;
+        show('診断①: 報告位置 '+r+' 行目・'+(reported.col||'?')+'桁「'+reported.msg+'」 → '+
+          [lines[r-2],lines[r-1],lines[r]].map(clip).join('  ⏎  '), true);
+      }
+
+      // ② 行番号に頼らず、先頭から区切りごとに構文を調べて、最初に壊れる範囲を二分探索で特定
+      var B=[];
+      for(var k=1;k<lines.length;k++){
+        if(/^(async function |function |let |const |var |window\.|document\.|\/\/ ──)/.test(lines[k])) B.push(k);
+      }
+      B.push(lines.length);
+      function prefixBad(idx){ return hasSyntaxError(lines.slice(0,B[idx]).join('\n')); }
+      var lo=0, hi=B.length-1;
+      while(lo<hi){
+        var mid=(lo+hi)>>1;
+        if(prefixBad(mid)) hi=mid; else lo=mid+1;
+      }
+      var from=lo>0?B[lo-1]:0, to=B[lo];
+      var head=clip((lines[from]||'').trim());
+      var tail=clip((lines[to-1]||'').trim());
+      show('診断②: 最初に壊れる範囲は 本体 '+(from+1)+'〜'+to+' 行目（先頭: '+head+' / 末尾: '+tail+'）', true);
+    }catch(err){
+      diagBusy=false;
+      show('診断に失敗: '+err.message, true);
     }
   });
 })();
@@ -388,7 +449,6 @@ canvas{display:block}
   </div>
 </div>
 
-<!-- Googleカレンダーパネル -->
 <div id="gcal-panel">
   <div class="gcal-panel-hdr">
     <span id="gcal-panel-title">Googleカレンダー</span>
@@ -415,10 +475,8 @@ canvas{display:block}
       <span id="wlabel"></span>
       <button onclick="wOff++;renderWeek()">›</button>
     </div>
-    <!-- 曜日ヘッダー行（グリッドから分離） -->
-    <div class="wgrid" id="wgrid-header" style="margin-bottom:4px"></div>
-    <!-- 今週の予定グリッド：曜日ヘッダーと1時間目の間 -->
-    <div id="cd-badges" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
+        <div class="wgrid" id="wgrid-header" style="margin-bottom:4px"></div>
+        <div id="cd-badges" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>
     <div class="week-sched-wrap">
       <div class="week-sched-hdr">
         <span class="ws-label">📋 今週の予定・書類</span>
@@ -428,8 +486,7 @@ canvas{display:block}
     </div>
     <input type="file" id="doc-camera-input" accept="image/*" capture="environment" style="display:none" onchange="handleDocPhoto(event)"/>
     <input type="file" id="doc-file-input" accept="image/*" style="display:none" onchange="handleDocPhoto(event)"/>
-    <!-- 時限グリッド（ヘッダーなし・時限列のみ） -->
-    <div class="wgrid" id="wgrid"></div>
+        <div class="wgrid" id="wgrid"></div>
     <div style="margin-top:10px">
       <div style="font-size:11px;color:var(--txt3);margin-bottom:5px">📎 日付の書類（＋で追加、タップで表示）</div>
       <div id="ddocs-row" style="display:grid;grid-template-columns:46px repeat(5,1fr);gap:3px;margin-bottom:10px"></div>
@@ -437,10 +494,8 @@ canvas{display:block}
       <div id="dmemo-row" style="display:grid;grid-template-columns:46px repeat(5,1fr);gap:3px"></div>
     </div>
 
-    <!-- 下部パネル -->
-    <div class="bottom-panel">
-      <!-- TODOリスト -->
-      <div class="bp-sec">
+        <div class="bottom-panel">
+            <div class="bp-sec">
         <div class="bp-hdr">
           <span>✅ TODOリスト</span>
         </div>
@@ -452,8 +507,7 @@ canvas{display:block}
           </div>
         </div>
       </div>
-      <!-- 書類一覧 -->
-      <div class="bp-sec">
+            <div class="bp-sec">
         <div class="bp-hdr">
           <span>📄 書類一覧</span>
           <button class="bp-add" onclick="document.getElementById('doc-file-input').click()">＋ 追加</button>
@@ -475,19 +529,16 @@ canvas{display:block}
 </div>
 
 
-<!-- 今日のダッシュボード -->
 <div class="pg" id="pg-dashboard">
   <div id="dash-date" style="font-size:16px;font-weight:600;margin-bottom:2px"></div>
   <div id="dash-sub" style="font-size:11px;color:var(--txt3);margin-bottom:12px"></div>
 
   <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px">
-    <!-- 左: 今日の授業 -->
-    <div>
+        <div>
       <div style="font-size:12px;font-weight:500;color:var(--txt2);margin-bottom:6px">📚 今日の授業</div>
       <div id="dash-lessons" style="display:flex;flex-direction:column;gap:6px"></div>
     </div>
-    <!-- 右: 予定とTODO -->
-    <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;flex-direction:column;gap:12px">
       <div>
         <div style="font-size:12px;font-weight:500;color:var(--txt2);margin-bottom:6px">📋 今日の予定</div>
         <div id="dash-scheds" style="display:flex;flex-direction:column;gap:4px"></div>
@@ -504,7 +555,6 @@ canvas{display:block}
   </div>
 </div>
 
-<!-- 書類一覧ページ -->
 <div class="pg" id="pg-docs">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
     <span style="font-size:14px;font-weight:600">📄 書類一覧</span>
@@ -519,22 +569,19 @@ canvas{display:block}
   <div class="sec">
     <div class="sec-ttl">月予定の一括入力</div>
 
-    <!-- 年月選択 -->
-    <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
       <input type="number" id="paste-year" style="width:72px;font-size:13px;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none" placeholder="2025"/>
       <span style="font-size:13px;color:var(--txt2)">年</span>
       <input type="number" id="paste-month" min="1" max="12" style="width:56px;font-size:13px;padding:6px 8px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none" placeholder="5"/>
       <span style="font-size:13px;color:var(--txt2)">月分</span>
     </div>
 
-    <!-- 入力エリア説明 -->
-    <div style="font-size:12px;color:var(--txt3);margin-bottom:6px;line-height:1.7">
+        <div style="font-size:12px;color:var(--txt3);margin-bottom:6px;line-height:1.7">
       1行ごとに <strong style="color:var(--txt2)">日付 スペース 行事名</strong> の形式で貼り付け。<br>
       「、」や「，」で区切ると別々の行事として登録されます。
     </div>
 
-    <!-- テキスト貼り付けエリア -->
-    <textarea id="paste-area"
+        <textarea id="paste-area"
       placeholder="例：
 1 入学式
 5 遠足、学年集会
@@ -545,8 +592,7 @@ canvas{display:block}
       oninput="parsePastePreview()"
     ></textarea>
 
-    <!-- リアルタイムプレビュー -->
-    <div id="paste-preview" style="margin-top:10px;display:none">
+        <div id="paste-preview" style="margin-top:10px;display:none">
       <div style="font-size:11px;font-weight:500;color:var(--txt2);margin-bottom:6px">📋 プレビュー</div>
       <div id="paste-preview-body" style="max-height:220px;overflow-y:auto;border:0.5px solid var(--border);border-radius:var(--r);background:var(--bg2)"></div>
       <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
@@ -588,8 +634,7 @@ canvas{display:block}
     <div id="plan-list"></div>
   </div>
 
-  <!-- テストカウントダウン -->
-  <div class="sec">
+    <div class="sec">
     <div class="sec-ttl">🗓️ テスト・行事カウントダウン</div>
     <div class="countdown-list" id="countdown-list"></div>
     <div class="cd-add-row">
@@ -599,8 +644,7 @@ canvas{display:block}
     </div>
   </div>
 
-  <!-- バックアップ -->
-    <div class="sec">
+      <div class="sec">
     <div class="sec-ttl">🧪 理科室が使えるコマ（毎週）</div>
     <div style="font-size:11px;color:var(--txt3);margin-bottom:8px">理科室が優先的に使えるコマをタップして設定。週表示ではコマの🧪をタップするとその日だけ変更できます。</div>
     <div id="science-room-grid"></div>
@@ -647,7 +691,6 @@ canvas{display:block}
   </div>
 </div>
 
-<!-- 授業編集モーダル -->
 <div class="mbg" id="cls-modal">
   <div class="modal">
     <h3 id="cm-title"></h3>
@@ -655,16 +698,14 @@ canvas{display:block}
     <div id="cm-ov-note" style="font-size:12px;color:var(--amber);background:var(--amber-l);padding:6px 10px;border-radius:var(--r);margin-bottom:4px;display:none">この日だけ変更します（基本時間割は変わりません）。</div>
     <label>授業</label>
     <select id="cm-subj-cls"></select>
-    <!-- メイン教科：授業計画から選ぶ + 自由入力 -->
-    <div id="cm-lesson-wrap" style="display:none;margin-top:10px">
+        <div id="cm-lesson-wrap" style="display:none;margin-top:10px">
       <label>授業内容</label>
       <select id="cm-lesson" onchange="syncLessonInput()" style="margin-bottom:6px"></select>
       <textarea id="cm-lesson-text" placeholder="または直接入力・メモ（例: 植物の細胞のつくり）"
         style="width:100%;font-size:13px;padding:7px 9px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none;resize:vertical;min-height:60px;font-family:inherit"></textarea>
       <div style="margin-top:4px;font-size:11px;color:var(--txt3)">リストから選ぶか、直接入力できます</div>
     </div>
-    <!-- メイン以外：自由記述のみ -->
-    <div id="cm-sub-memo-wrap" style="display:none;margin-top:10px">
+        <div id="cm-sub-memo-wrap" style="display:none;margin-top:10px">
       <label>授業内容・メモ</label>
       <textarea id="cm-sub-memo" placeholder="授業内容を自由に入力（例: 2学期の目標、話し合い活動）"
         style="width:100%;font-size:13px;padding:7px 9px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg2);color:var(--txt);outline:none;resize:vertical;min-height:60px;font-family:inherit"></textarea>
@@ -682,7 +723,6 @@ canvas{display:block}
 </div>
 
 
-<!-- 書類追加ソース選択モーダル -->
 <div class="mbg" id="doc-src-modal">
   <div class="doc-add-modal">
     <h3 style="font-size:15px;font-weight:500;margin-bottom:14px">書類を追加</h3>
@@ -700,7 +740,6 @@ canvas{display:block}
   </div>
 </div>
 
-<!-- 書類ビューア -->
 <div class="mbg" id="doc-viewer">
   <div class="doc-viewer-modal">
     <div class="doc-viewer-hdr">
