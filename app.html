@@ -1928,7 +1928,7 @@ async function deleteFromGoogle(item){
   if(item.gcalId){
     try{
       await gapiFetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalId}`,
+        `https:\/\/www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalId}`,
         {method:'DELETE',headers:{Authorization:`Bearer ${_gcalToken}`}}
       );
       console.log('Googleカレンダーからも削除しました');
@@ -1940,7 +1940,7 @@ async function deleteFromGoogle(item){
       const listId=await getGTasksListId();
       if(listId){
         await gapiFetch(
-          `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${item.taskId}`,
+          `https:\/\/tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${item.taskId}`,
           {method:'DELETE',headers:{Authorization:`Bearer ${_gcalToken}`}}
         );
       }
@@ -2758,7 +2758,7 @@ async function gcalFetchWeek(){
 
   try {
     const res = await gapiFetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${tMin}&timeMax=${tMax}&singleEvents=true&orderBy=startTime&maxResults=50`,
+      `https:\/\/www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${tMin}&timeMax=${tMax}&singleEvents=true&orderBy=startTime&maxResults=50`,
       { headers: { Authorization: `Bearer ${_gcalToken}` } }
     );
     if(!res.ok){ throw new Error('API error '+res.status); }
@@ -2831,7 +2831,7 @@ async function gcalImportWeek(){
   const mon = getMon(new Date());
   const sun = new Date(mon); sun.setDate(mon.getDate()+6);
   const res = await gapiFetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${mon.toISOString()}&timeMax=${sun.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=50`,
+    `https:\/\/www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${mon.toISOString()}&timeMax=${sun.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=50`,
     { headers: { Authorization: `Bearer ${_gcalToken}` } }
   );
   const data = await res.json();
@@ -2870,7 +2870,7 @@ async function gcalExportWeek(){
 
       try {
         const res = await gapiFetch(
-          'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+          'https:\/\/www.googleapis.com/calendar/v3/calendars/primary/events',
           { method:'POST',
             headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
             body: JSON.stringify(body) }
@@ -2904,7 +2904,7 @@ async function gcalSyncReminders(){
   try{
     // タスクリスト一覧を取得
     const listsRes = await gapiFetch(
-      'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=20',
+      'https:\/\/tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=20',
       {headers:{Authorization:`Bearer ${_gcalToken}`}}
     );
     if(listsRes.status===401){console.warn('API 401');return;}
@@ -2927,7 +2927,7 @@ async function gcalSyncReminders(){
     // 全リストのタスクを取得
     for(const list of lists){
       const tasksRes = await gapiFetch(
-        `https://tasks.googleapis.com/tasks/v1/lists/${list.id}/tasks?showCompleted=false&showHidden=false&maxResults=100`,
+        `https:\/\/tasks.googleapis.com/tasks/v1/lists/${list.id}/tasks?showCompleted=false&showHidden=false&maxResults=100`,
         {headers:{Authorization:`Bearer ${_gcalToken}`}}
       );
       if(!tasksRes.ok) continue;
@@ -3003,7 +3003,7 @@ async function gcalCreateReminder(ds, item){
     };
 
     const res = await gapiFetch(
-      'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+      'https:\/\/www.googleapis.com/calendar/v3/calendars/primary/events',
       {method:'POST',
        headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
        body:JSON.stringify(body)}
@@ -3039,14 +3039,14 @@ function toggleReminderDone(ds, idx){
 async function gcalCompleteTask(taskId){
   // タスクリストを検索してタスクを完了状態に更新
   const listsRes = await gapiFetch(
-    'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=20',
+    'https:\/\/tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=20',
     {headers:{Authorization:`Bearer ${_gcalToken}`}}
   );
   const listsData = await listsRes.json();
   for(const list of (listsData.items||[])){
     try{
       await gapiFetch(
-        `https://tasks.googleapis.com/tasks/v1/lists/${list.id}/tasks/${taskId}`,
+        `https:\/\/tasks.googleapis.com/tasks/v1/lists/${list.id}/tasks/${taskId}`,
         {method:'PATCH',
          headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
          body:JSON.stringify({status:'completed'})}
@@ -3152,7 +3152,7 @@ async function getDrivePhotoFolder(){
   try{
     // 既存フォルダを検索
     const res = await gapiFetch(
-      `https://www.googleapis.com/drive/v3/files?q=name='${DRIVE_PHOTO_FOLDER}'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id)`,
+      `https:\/\/www.googleapis.com/drive/v3/files?q=name='${DRIVE_PHOTO_FOLDER}'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id)`,
       {headers:{Authorization:`Bearer ${_gcalToken}`}}
     );
     const data = await res.json();
@@ -3162,7 +3162,7 @@ async function getDrivePhotoFolder(){
     }
     // フォルダ作成
     const createRes = await gapiFetch(
-      'https://www.googleapis.com/drive/v3/files',
+      'https:\/\/www.googleapis.com/drive/v3/files',
       {method:'POST',
        headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
        body:JSON.stringify({name:DRIVE_PHOTO_FOLDER,mimeType:'application/vnd.google-apps.folder'})}
@@ -3206,7 +3206,7 @@ async function getGTasksListId(){
   if(!_gcalToken) return null;
   try{
     const res = await gapiFetch(
-      'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1',
+      'https:\/\/tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1',
       {headers:{Authorization:`Bearer ${_gcalToken}`}}
     );
     const data = await res.json();
@@ -3228,7 +3228,7 @@ async function syncAndRenderTodos(){
     const listId = await getGTasksListId();
     if(!listId){ renderTodoLocal(); return; }
     const res = await gapiFetch(
-      `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?showCompleted=false&showHidden=false&maxResults=50`,
+      `https:\/\/tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?showCompleted=false&showHidden=false&maxResults=50`,
       {headers:{Authorization:`Bearer ${_gcalToken}`}}
     );
     const data = await res.json();
@@ -3296,7 +3296,7 @@ async function addTodo(){
       const listId=await getGTasksListId();
       if(listId){
         await gapiFetch(
-          `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks`,
+          `https:\/\/tasks.googleapis.com/tasks/v1/lists/${listId}/tasks`,
           {method:'POST',
            headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
            body:JSON.stringify({title:text,status:'needsAction'})}
@@ -3323,7 +3323,7 @@ async function toggleTodoGTask(taskId, currentDone){
     const listId=await getGTasksListId();
     if(!listId) return;
     await gapiFetch(
-      `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`,
+      `https:\/\/tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`,
       {method:'PATCH',
        headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
        body:JSON.stringify({status:currentDone?'needsAction':'completed'})}
@@ -3338,7 +3338,7 @@ async function deleteTodoGTask(taskId){
     const listId=await getGTasksListId();
     if(!listId) return;
     await gapiFetch(
-      `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`,
+      `https:\/\/tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`,
       {method:'DELETE',headers:{'Authorization':`Bearer ${_gcalToken}`}}
     );
     await syncAndRenderTodos();
@@ -3558,7 +3558,7 @@ async function exportDocsPdf(ds){
   if(!window.jspdf){
     await new Promise((res,rej)=>{
       const s=document.createElement('script');
-      s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.src='https:\/\/cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
       s.onload=res; s.onerror=rej;
       document.head.appendChild(s);
     });
@@ -3840,7 +3840,7 @@ async function moveSchedItem(fromDs, idx, toDs){
     try{
       // 既存イベントを取得して日付だけ変更
       const getRes=await gapiFetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalId}`,
+        `https:\/\/www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalId}`,
         {headers:{Authorization:`Bearer ${_gcalToken}`}}
       );
       if(getRes.ok){
@@ -3859,7 +3859,7 @@ async function moveSchedItem(fromDs, idx, toDs){
           body.end={dateTime:`${toDs}T${enTime}`,timeZone:ev.end?.timeZone||'Asia/Tokyo'};
         }
         await gapiFetch(
-          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalId}`,
+          `https:\/\/www.googleapis.com/calendar/v3/calendars/primary/events/${item.gcalId}`,
           {method:'PATCH',
            headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
            body:JSON.stringify(body)}
@@ -3875,7 +3875,7 @@ async function moveSchedItem(fromDs, idx, toDs){
       const listId=await getGTasksListId();
       if(listId){
         await gapiFetch(
-          `https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${item.taskId}`,
+          `https:\/\/tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${item.taskId}`,
           {method:'PATCH',
            headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
            body:JSON.stringify({due:toDs+'T00:00:00.000Z'})}
@@ -4175,7 +4175,7 @@ async function gcalSyncNow(){
     const rangeStart=new Date(); rangeStart.setMonth(0); rangeStart.setDate(1); rangeStart.setHours(0,0,0,0);
     const rangeEnd=new Date(); rangeEnd.setFullYear(rangeEnd.getFullYear()+1); rangeEnd.setMonth(11); rangeEnd.setDate(31); rangeEnd.setHours(23,59,59,999);
     const res=await gapiFetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${rangeStart.toISOString()}&timeMax=${rangeEnd.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=2500`,
+      `https:\/\/www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${rangeStart.toISOString()}&timeMax=${rangeEnd.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=2500`,
       {headers:{Authorization:`Bearer ${_gcalToken}`}}
     );
     if(res.status===401){console.warn('API 401');gcalStopAutoSync();return;}
@@ -4430,7 +4430,7 @@ async function gcalExportAll(){
       const endTime=item.end||item.start;
       const endDt=isAllDay?{date:(()=>{const d=new Date(ds);d.setDate(d.getDate()+1);return iso(d);})()}:{dateTime:new Date(`${ds}T${endTime}:00`).toISOString(),timeZone:'Asia/Tokyo'};
       try{
-        const res=await gapiFetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',
+        const res=await gapiFetch('https:\/\/www.googleapis.com/calendar/v3/calendars/primary/events',
           {method:'POST',headers:{'Authorization':`Bearer ${_gcalToken}`,'Content-Type':'application/json'},
            body:JSON.stringify({summary:item.title,description:item.note||'',start:startDt,end:endDt})});
         if(res.status===401){console.warn('API 401');return;}
